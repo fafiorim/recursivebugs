@@ -7,9 +7,6 @@ on:
     branches: [ main ]
 
 jobs:
-  ###################################################################
-  # 1) BUILD JOB
-  ###################################################################
   build:
     runs-on: ubuntu-latest
     steps:
@@ -27,9 +24,6 @@ jobs:
           name: docker-image
           path: firefly.tar
 
-  ###################################################################
-  # 2) PUSH TO ECR
-  ###################################################################
   push-to-ecr:
     needs: build
     runs-on: ubuntu-latest
@@ -72,9 +66,6 @@ jobs:
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           echo "IMAGE=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_ENV
 
-  ###################################################################
-  # 3) VULNERABILITY SCAN
-  ###################################################################
   vulnerabilities-scan:
     if: ${{ vars.SECURITY_ENABLED != 'false' }}
     needs: push-to-ecr
@@ -99,17 +90,14 @@ jobs:
         run: |
           sudo apt-get update -y && sudo apt-get install -y jq
           
-          # Create summary header
           echo "## 🔍 Vulnerability Scan Results" >> $GITHUB_STEP_SUMMARY
           echo "### Overview" >> $GITHUB_STEP_SUMMARY
           
-          # Get counts
           CRITICAL=$(jq '.vulnerabilities.criticalCount' vulnerability-scan-results.json)
           HIGH=$(jq '.vulnerabilities.highCount' vulnerability-scan-results.json)
           MEDIUM=$(jq '.vulnerabilities.mediumCount' vulnerability-scan-results.json)
           LOW=$(jq '.vulnerabilities.lowCount' vulnerability-scan-results.json)
           
-          # Add summary table
           echo "| Severity  | Count |" >> $GITHUB_STEP_SUMMARY
           echo "|-----------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| Critical  | $CRITICAL |" >> $GITHUB_STEP_SUMMARY
@@ -135,9 +123,6 @@ jobs:
           name: vulnerability-scan-results
           path: vulnerability-scan-results.json
 
-  ###################################################################
-  # 4) MALWARE SCAN
-  ###################################################################
   malware-scan:
     if: ${{ vars.SECURITY_ENABLED != 'false' }}
     needs: push-to-ecr
@@ -167,7 +152,6 @@ jobs:
         run: |
           sudo apt-get update -y && sudo apt-get install -y jq
           
-          # Create summary header
           echo "## 🦠 Malware Scan Results" >> $GITHUB_STEP_SUMMARY
           
           CODE=$(jq '.malware.scanResult' scan-results/malware-scan-results.json)
@@ -199,9 +183,6 @@ jobs:
             scan-results/malware-scan-results.json
             malware-scan-results.json
 
-  ###################################################################
-  # 5) SECRETS SCAN
-  ###################################################################
   secrets-scan:
     if: ${{ vars.SECURITY_ENABLED != 'false' }}
     needs: push-to-ecr
@@ -226,7 +207,6 @@ jobs:
         run: |
           sudo apt-get update -y && sudo apt-get install -y jq
           
-          # Create summary header
           echo "## 🔒 Secrets Scan Results" >> $GITHUB_STEP_SUMMARY
           
           SECRETS_COUNT=$(jq '.secrets.unmitigatedFindingsCount' secrets-scan-results.json)
@@ -256,9 +236,6 @@ jobs:
           name: secrets-scan-results
           path: secrets-scan-results.json
 
-  ###################################################################
-  # 6) SBOM SCAN
-  ###################################################################
   sbom-scan:
     if: ${{ vars.SECURITY_ENABLED != 'false' }}
     needs: push-to-ecr
@@ -313,27 +290,25 @@ jobs:
           aws-region: ${{ secrets.AWS_REGION }}
 
       - name: List available EKS clusters
-        run: |
-          aws eks list-clusters
+        run: aws eks list-clusters
       
       - name: Update kube config
-        run: |
-          aws eks update-kubeconfig --name ${{ secrets.EKS_CLUSTER_NAME }} --region ${{ secrets.AWS_REGION }}
+        run: aws eks update-kubeconfig --name ${{ secrets.EKS_CLUSTER_NAME }} --region ${{ secrets.AWS_REGION }}
       
       - name: Verify cluster access
         run: |
           kubectl cluster-info
           kubectl config current-context
       
-      - name: Load ECR registry info
-        id: ecr-registry
+      - name: Get ECR registry
+        id: ecr
         run: |
           ECR_REGISTRY=$(aws ecr describe-registry --query registryId --output text)
           echo "registry=${ECR_REGISTRY}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com" >> $GITHUB_OUTPUT
       
       - name: Update deployment image
         env:
-          ECR_REGISTRY: ${{ steps.ecr-registry.outputs.registry }}
+          ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
           ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY_NAME }}
         run: |
           echo "Updating deployment to use image: $ECR_REGISTRY/$ECR_REPOSITORY:latest"
@@ -348,93 +323,3 @@ jobs:
           kubectl get deployments
           kubectl get pods
           kubectl get services
-      - uses: actions/checkout@v4
-      
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
-      
-      - name: Validate cluster name
-        run: |
-          CLUSTER_NAME="${{ secrets.EKS_CLUSTER_NAME }}"
-          
-          if [ -z "$CLUSTER_NAME" ]; then
-            echo "Error: Cluster name is empty"
-            exit 1
-          fi
-          
-          # Remove any surrounding quotes and cleanup the name
-          CLUSTER_NAME=$(echo "$CLUSTER_NAME" | tr -d '"' | tr -d "'")
-          
-          # Print the cluster name for debugging (masking sensitive parts)
-          echo "Debug: Validating cluster name format"
-          echo "Debug: Length of name: ${#CLUSTER_NAME}"
-          
-          # More permissive validation that allows dots and hyphens
-          if echo "$CLUSTER_NAME" | grep -E '^[a-zA-Z0-9][a-zA-Z0-9._-]*
-
-      - name: Update kube config
-        run: |
-          aws eks update-kubeconfig \
-            --name ${{ secrets.EKS_CLUSTER_NAME }} \
-            --region ${{ secrets.AWS_REGION }}
-      
-      - name: Verify cluster access
-        run: |
-          echo "Verifying cluster connectivity..."
-          kubectl cluster-info
-          echo "Current context:"
-          kubectl config current-context
-      
-      - name: Load ECR registry info
-        id: ecr-registry
-        run: |
-          ECR_REGISTRY=$(aws ecr describe-registry --query registryId --output text)
-          echo "registry=${ECR_REGISTRY}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com" >> $GITHUB_OUTPUT
-      
-      - name: Update deployment image
-        env:
-          ECR_REGISTRY: ${{ steps.ecr-registry.outputs.registry }}
-          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY_NAME }}
-        run: |
-          echo "Updating deployment to use image: $ECR_REGISTRY/$ECR_REPOSITORY:latest"
-          sed -i "s|image:.*|image: $ECR_REGISTRY/$ECR_REPOSITORY:latest|" k8s/deployment.yaml
-          echo "Updated deployment manifest:"
-          cat k8s/deployment.yaml
-          
-      - name: Deploy to EKS
-        run: |
-          echo "Applying deployment..."
-          kubectl apply -f k8s/deployment.yaml
-          echo "Applying service..."
-          kubectl apply -f k8s/service.yaml
-          
-          echo "Waiting for deployment rollout..."
-          kubectl rollout status deployment/nginx-deployment
-          
-          echo "Deployment status:"
-          kubectl get deployments
-          kubectl get pods
-          kubectl get services > /dev/null; then
-            echo "✅ Cluster name validation passed"
-            echo "CLUSTER_NAME=$CLUSTER_NAME" >> $GITHUB_ENV
-          else
-            echo "❌ Error: Invalid cluster name format"
-            echo "Cluster name must:"
-            echo "- Start with a letter or number"
-            echo "- Contain only letters, numbers, dots (.), hyphens (-), at signs (@), or underscores (_)"
-            echo "- No spaces or other special characters allowed"
-            exit 1
-          fi
-
-      - name: Update kube config
-        run: |
-          aws eks update-kubeconfig \
-            --name ${{ secrets.EKS_CLUSTER_NAME }} \
-            --region ${{ secrets.AWS_REGION }}
-      
-      - name: Verify cluster access
-        run: |
