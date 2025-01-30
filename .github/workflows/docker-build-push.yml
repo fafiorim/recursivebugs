@@ -19,7 +19,7 @@ jobs:
         run: docker save fafiorim/firefly:latest -o firefly.tar
       
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: docker-image
           path: firefly.tar
@@ -30,7 +30,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4
         with:
           name: docker-image
       
@@ -118,7 +118,7 @@ jobs:
 
       - name: Upload vulnerability logs
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: vulnerability-scan-results
           path: vulnerability-scan-results.json
