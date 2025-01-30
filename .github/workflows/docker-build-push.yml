@@ -293,9 +293,6 @@ jobs:
           name: sbom-report
           path: SBOM_*.json
 
-  ###################################################################
-  # 7) DEPLOY TO EKS
-  ###################################################################
   deploy-to-eks:
     needs: [vulnerabilities-scan, malware-scan, secrets-scan, sbom-scan]
     if: |
@@ -306,6 +303,51 @@ jobs:
       needs.sbom-scan.result != 'failure'
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: List available EKS clusters
+        run: |
+          aws eks list-clusters
+      
+      - name: Update kube config
+        run: |
+          aws eks update-kubeconfig --name ${{ secrets.EKS_CLUSTER_NAME }} --region ${{ secrets.AWS_REGION }}
+      
+      - name: Verify cluster access
+        run: |
+          kubectl cluster-info
+          kubectl config current-context
+      
+      - name: Load ECR registry info
+        id: ecr-registry
+        run: |
+          ECR_REGISTRY=$(aws ecr describe-registry --query registryId --output text)
+          echo "registry=${ECR_REGISTRY}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com" >> $GITHUB_OUTPUT
+      
+      - name: Update deployment image
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-registry.outputs.registry }}
+          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY_NAME }}
+        run: |
+          echo "Updating deployment to use image: $ECR_REGISTRY/$ECR_REPOSITORY:latest"
+          sed -i "s|image:.*|image: $ECR_REGISTRY/$ECR_REPOSITORY:latest|" k8s/deployment.yaml
+          cat k8s/deployment.yaml
+          
+      - name: Deploy to EKS
+        run: |
+          kubectl apply -f k8s/deployment.yaml
+          kubectl apply -f k8s/service.yaml
+          kubectl rollout status deployment/nginx-deployment
+          kubectl get deployments
+          kubectl get pods
+          kubectl get services
       - uses: actions/checkout@v4
       
       - name: Configure AWS credentials
