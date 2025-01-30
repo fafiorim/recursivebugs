@@ -95,13 +95,38 @@ jobs:
       - name: Scan for Vulnerabilities
         run: tmas scan docker-archive:firefly.tar -V > vulnerability-scan-results.json
       
-      - name: Fail if critical vulnerabilities
+      - name: Analyze vulnerabilities and create summary
         run: |
           sudo apt-get update -y && sudo apt-get install -y jq
+          
+          # Create summary header
+          echo "## 🔍 Vulnerability Scan Results" >> $GITHUB_STEP_SUMMARY
+          echo "### Overview" >> $GITHUB_STEP_SUMMARY
+          
+          # Get counts
           CRITICAL=$(jq '.vulnerabilities.criticalCount' vulnerability-scan-results.json)
+          HIGH=$(jq '.vulnerabilities.highCount' vulnerability-scan-results.json)
+          MEDIUM=$(jq '.vulnerabilities.mediumCount' vulnerability-scan-results.json)
+          LOW=$(jq '.vulnerabilities.lowCount' vulnerability-scan-results.json)
+          
+          # Add summary table
+          echo "| Severity  | Count |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Critical  | $CRITICAL |" >> $GITHUB_STEP_SUMMARY
+          echo "| High      | $HIGH |" >> $GITHUB_STEP_SUMMARY
+          echo "| Medium    | $MEDIUM |" >> $GITHUB_STEP_SUMMARY
+          echo "| Low       | $LOW |" >> $GITHUB_STEP_SUMMARY
+          
+          # Add critical vulnerabilities details if any exist
           if [ "$CRITICAL" -gt 0 ]; then
+            echo "### ❌ Critical Vulnerabilities" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            jq -r '.vulnerabilities.findings[] | select(.severity=="CRITICAL") | "- "+.id+": "+.description' vulnerability-scan-results.json >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
             echo "Critical vulnerabilities found! Failing..."
             exit 1
+          else
+            echo "### ✅ No Critical Vulnerabilities Found" >> $GITHUB_STEP_SUMMARY
           fi
 
       - name: Upload vulnerability logs
@@ -134,13 +159,31 @@ jobs:
       - name: Scan for Malware
         run: tmas scan docker-archive:firefly.tar -M > malware-scan-results.json
       
-      - name: Fail if malware is found
+      - name: Analyze malware scan and create summary
         run: |
           sudo apt-get update -y && sudo apt-get install -y jq
+          
+          # Create summary header
+          echo "## 🦠 Malware Scan Results" >> $GITHUB_STEP_SUMMARY
+          
           CODE=$(jq '.malware.scanResult' malware-scan-results.json)
+          COUNT=$(jq '.malware.findingsCount // 0' malware-scan-results.json)
+          
+          echo "### Overview" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Scan Status | $([ "$CODE" -eq 0 ] && echo "✅ Clean" || echo "❌ Malware Detected") |" >> $GITHUB_STEP_SUMMARY
+          echo "| Findings | $COUNT |" >> $GITHUB_STEP_SUMMARY
+          
           if [ "$CODE" -gt 0 ]; then
+            echo "### ❌ Malware Findings" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            jq -r '.malware.findings[] | "- Type: " + .type + " | File: " + .file' malware-scan-results.json >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
             echo "Malware detected! Failing..."
             exit 1
+          else
+            echo "### ✅ No Malware Detected" >> $GITHUB_STEP_SUMMARY
           fi
 
       - name: Upload malware logs
@@ -173,19 +216,31 @@ jobs:
       - name: Scan for Secrets
         run: tmas scan docker-archive:firefly.tar -S > secrets-scan-results.json
       
-      - name: Fail if secrets found
+      - name: Analyze secrets and create summary
         run: |
           sudo apt-get update -y && sudo apt-get install -y jq
           
-          SECRETS_COUNT=$(jq '.secrets.unmitigatedFindingsCount' secrets-scan-results.json)
-          echo "Secrets found: $SECRETS_COUNT"
+          # Create summary header
+          echo "## 🔒 Secrets Scan Results" >> $GITHUB_STEP_SUMMARY
           
-          echo "=== SECRET DETAILS ==="
-          jq -r '.secrets.findings.unmitigated[]? | "* Rule: \(.ruleID) | Path: \(.location.path)"' secrets-scan-results.json
+          SECRETS_COUNT=$(jq '.secrets.unmitigatedFindingsCount' secrets-scan-results.json)
+          
+          echo "### Overview" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Unmitigated Secrets | $SECRETS_COUNT |" >> $GITHUB_STEP_SUMMARY
+          echo "| Status | $([ "$SECRETS_COUNT" -eq 0 ] && echo "✅ Clean" || echo "❌ Secrets Found") |" >> $GITHUB_STEP_SUMMARY
           
           if [ "$SECRETS_COUNT" -gt 0 ]; then
+            echo "### ❌ Secret Details" >> $GITHUB_STEP_SUMMARY
+            echo "| Rule ID | Location |" >> $GITHUB_STEP_SUMMARY
+            echo "|---------|-----------|" >> $GITHUB_STEP_SUMMARY
+            jq -r '.secrets.findings.unmitigated[]? | "| \(.ruleID) | \(.location.path) |"' secrets-scan-results.json >> $GITHUB_STEP_SUMMARY
+            
             echo "Secrets detected! Failing..."
             exit 1
+          else
+            echo "### ✅ No Secrets Found" >> $GITHUB_STEP_SUMMARY
           fi
 
       - name: Upload secrets logs
@@ -254,18 +309,81 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
       
+      - name: Validate cluster name
+        run: |
+          CLUSTER_NAME="${{ secrets.EKS_CLUSTER_NAME }}"
+          if ! [[ $CLUSTER_NAME =~ ^[0-9A-Za-z][A-Za-z0-9-_]*$ ]]; then
+            echo "Error: Invalid cluster name format."
+            echo "Cluster name must:"
+            echo "- Start with a letter or number"
+            echo "- Contain only letters, numbers, hyphens (-), and underscores (_)"
+            echo "Current value: $CLUSTER_NAME"
+            exit 1
+          fi
+          echo "Cluster name validation passed"
+
+      - name: List available EKS clusters
+        run: |
+          echo "Available EKS clusters in region ${{ secrets.AWS_REGION }}:"
+          aws eks list-clusters
+      
       - name: Update kube config
-        run: aws eks update-kubeconfig --name ${{ secrets.EKS_CLUSTER_NAME }} --region ${{ secrets.AWS_REGION }}
+        run: |
+          echo "Configuring kubectl for cluster ${{ secrets.EKS_CLUSTER_NAME }}"
+          aws eks update-kubeconfig \
+            --name ${{ secrets.EKS_CLUSTER_NAME }} \
+            --region ${{ secrets.AWS_REGION }}
+      
+      - name: Extract and validate cluster name
+        run: |
+          FULL_CLUSTER_NAME="${{ secrets.EKS_CLUSTER_NAME }}"
+          # Extract cluster name (assuming format: user@clustername.region.eksctl.io)
+          CLUSTER_NAME=$(echo $FULL_CLUSTER_NAME | cut -d'@' -f2 | cut -d'.' -f1)
+          
+          echo "Full cluster name: $FULL_CLUSTER_NAME"
+          echo "Extracted cluster name: $CLUSTER_NAME"
+          
+          if ! [[ $CLUSTER_NAME =~ ^[0-9A-Za-z][A-Za-z0-9-_]*$ ]]; then
+            echo "Error: Invalid cluster name format after extraction"
+            exit 1
+          fi
+          
+          echo "CLUSTER_NAME=$CLUSTER_NAME" >> $GITHUB_ENV
+          
+      - name: Verify cluster access
+        run: |
+          echo "Verifying cluster connectivity..."
+          kubectl cluster-info
+          echo "Current context:"
+          kubectl config current-context
+      
+      - name: Load ECR registry info
+        id: ecr
+        run: |
+          ECR_REGISTRY=$(aws ecr describe-registry --query registryId --output text)
+          echo "registry=${ECR_REGISTRY}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com" >> $GITHUB_OUTPUT
       
       - name: Update deployment image
         env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
           ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY_NAME }}
         run: |
-          # Replace the image in the deployment file with the ECR image
+          echo "Updating deployment to use image: $ECR_REGISTRY/$ECR_REPOSITORY:latest"
           sed -i "s|image:.*|image: $ECR_REGISTRY/$ECR_REPOSITORY:latest|" k8s/deployment.yaml
+          echo "Updated deployment manifest:"
+          cat k8s/deployment.yaml
           
       - name: Deploy to EKS
         run: |
+          echo "Applying deployment..."
           kubectl apply -f k8s/deployment.yaml
+          echo "Applying service..."
           kubectl apply -f k8s/service.yaml
+          
+          echo "Waiting for deployment rollout..."
+          kubectl rollout status deployment/nginx-deployment
+          
+          echo "Deployment status:"
+          kubectl get deployments
+          kubectl get pods
+          kubectl get services
