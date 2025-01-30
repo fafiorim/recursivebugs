@@ -156,8 +156,13 @@ jobs:
       - name: Set TMAS_API_KEY
         run: echo "TMAS_API_KEY=${{ secrets.TMAS_API_KEY }}" >> $GITHUB_ENV
       
+      - name: Create results directory
+        run: mkdir -p scan-results
+      
       - name: Scan for Malware
-        run: tmas scan docker-archive:firefly.tar -M > malware-scan-results.json
+        run: |
+          tmas scan docker-archive:firefly.tar -M > scan-results/malware-scan-results.json
+          cp scan-results/malware-scan-results.json .
       
       - name: Analyze malware scan and create summary
         run: |
@@ -166,8 +171,8 @@ jobs:
           # Create summary header
           echo "## 🦠 Malware Scan Results" >> $GITHUB_STEP_SUMMARY
           
-          CODE=$(jq '.malware.scanResult' malware-scan-results.json)
-          COUNT=$(jq '.malware.findingsCount // 0' malware-scan-results.json)
+          CODE=$(jq '.malware.scanResult' scan-results/malware-scan-results.json)
+          COUNT=$(jq '.malware.findingsCount // 0' scan-results/malware-scan-results.json)
           
           echo "### Overview" >> $GITHUB_STEP_SUMMARY
           echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
@@ -178,7 +183,7 @@ jobs:
           if [ "$CODE" -gt 0 ]; then
             echo "### ❌ Malware Findings" >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-            jq -r '.malware.findings[] | "- Type: " + .type + " | File: " + .file' malware-scan-results.json >> $GITHUB_STEP_SUMMARY
+            jq -r '.malware.findings[] | "- Type: " + .type + " | File: " + .file' scan-results/malware-scan-results.json >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
             echo "Malware detected! Failing..."
             exit 1
@@ -189,6 +194,10 @@ jobs:
       - name: Upload malware logs
         if: always()
         uses: actions/upload-artifact@v3
+        with:
+          name: security-scan-results
+          path: |
+            scan-results/malware-scan-results.jsond-artifact@v3
         with:
           name: malware-scan-results
           path: malware-scan-results.json
