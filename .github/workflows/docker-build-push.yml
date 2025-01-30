@@ -23,6 +23,7 @@ jobs:
         with:
           name: docker-image
           path: firefly.tar
+          retention-days: 1
 
   push-to-ecr:
     needs: build
@@ -33,6 +34,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: docker-image
+          path: .
       
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -122,6 +124,8 @@ jobs:
         with:
           name: vulnerability-scan-results
           path: vulnerability-scan-results.json
+          retention-days: 1
+          if-no-files-found: error
 
   malware-scan:
     if: ${{ vars.SECURITY_ENABLED != 'false' }}
@@ -377,6 +381,30 @@ jobs:
           kubectl apply -f k8s/deployment.yaml
           kubectl apply -f k8s/service.yaml
           kubectl rollout status deployment/nginx-deployment
-          kubectl get deployments
-          kubectl get pods
-          kubectl get services
+          
+          echo "## 🚀 Deployment Status" >> $GITHUB_STEP_SUMMARY
+          echo "### Resources" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          kubectl get deployments >> $GITHUB_STEP_SUMMARY
+          kubectl get pods >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### Service URL" >> $GITHUB_STEP_SUMMARY
+          echo "Waiting for Load Balancer to be ready..." >> $GITHUB_STEP_SUMMARY
+          
+          # Wait for the load balancer to get an external IP (timeout after 60s)
+          for i in {1..12}; do
+            EXTERNAL_IP=$(kubectl get service nginx-service --output jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+            if [ ! -z "$EXTERNAL_IP" ]; then
+              echo "🔗 Your application is available at: http://$EXTERNAL_IP" >> $GITHUB_STEP_SUMMARY
+              break
+            fi
+            if [ $i -eq 12 ]; then
+              echo "⚠️ Timed out waiting for Load Balancer URL" >> $GITHUB_STEP_SUMMARY
+              echo "Please check the service status manually:" >> $GITHUB_STEP_SUMMARY
+              echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+              kubectl get service nginx-service >> $GITHUB_STEP_SUMMARY
+              echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            fi
+            sleep 5
+          done
