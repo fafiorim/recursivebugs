@@ -292,6 +292,13 @@ jobs:
       - name: List available EKS clusters
         run: aws eks list-clusters
       
+      - name: Check required variables
+        run: |
+          if [ -z "${{ vars.EKS_CLUSTER_NAME }}" ]; then
+            echo "Error: EKS_CLUSTER_NAME variable is not set"
+            exit 1
+          fi
+          
       - name: Update kube config
         run: aws eks update-kubeconfig --name ${{ vars.EKS_CLUSTER_NAME }} --region ${{ secrets.AWS_REGION }}
       
