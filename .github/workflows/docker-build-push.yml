@@ -1,9 +1,10 @@
-name: Build with Conditional Security Scans
+name: Docker Build, Scan and Deploy
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
 jobs:
   ###################################################################
@@ -12,47 +13,88 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-
+      - uses: actions/checkout@v4
+      
       - name: Build Docker image
-        run: docker build -t fafiorim/firefly:latest .
-
+        run: docker build -t fafiorim/firefly .
+      
       - name: Save Docker image
         run: docker save fafiorim/firefly:latest -o firefly.tar
-
-      - name: Upload Docker image artifact
+      
+      - name: Upload artifact
         uses: actions/upload-artifact@v3
         with:
           name: docker-image
           path: firefly.tar
 
   ###################################################################
-  # 2) VULNERABILITY SCAN
+  # 2) PUSH TO ECR
   ###################################################################
-  vulnerabilities-scan:
-    if: ${{ vars.SECURITY_ENABLED != 'false' }}
+  push-to-ecr:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-
-      - name: Download Docker artifact
-        uses: actions/download-artifact@v3
+      - uses: actions/checkout@v4
+      
+      - uses: actions/download-artifact@v3
         with:
           name: docker-image
-          path: .
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+      
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      
+      - name: Create ECR repository if not exists
+        env:
+          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY_NAME }}
+        run: |
+          aws ecr describe-repositories --repository-names ${ECR_REPOSITORY} || \
+          aws ecr create-repository \
+            --repository-name ${ECR_REPOSITORY} \
+            --image-scanning-configuration scanOnPush=true \
+            --encryption-configuration encryptionType=AES256
+      
+      - name: Load and push image to Amazon ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY_NAME }}
+          IMAGE_TAG: latest
+        run: |
+          docker load -i firefly.tar
+          docker tag fafiorim/firefly:latest $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          echo "IMAGE=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_ENV
 
+  ###################################################################
+  # 3) VULNERABILITY SCAN
+  ###################################################################
+  vulnerabilities-scan:
+    if: ${{ vars.SECURITY_ENABLED != 'false' }}
+    needs: push-to-ecr
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/download-artifact@v3
+        with:
+          name: docker-image
+      
       - name: Install Artifact Scan CLI
         run: ./tmas_install.sh
-
+      
       - name: Set TMAS_API_KEY
         run: echo "TMAS_API_KEY=${{ secrets.TMAS_API_KEY }}" >> $GITHUB_ENV
-
+      
       - name: Scan for Vulnerabilities
         run: tmas scan docker-archive:firefly.tar -V > vulnerability-scan-results.json
-
+      
       - name: Fail if critical vulnerabilities
         run: |
           sudo apt-get update -y && sudo apt-get install -y jq
@@ -70,31 +112,28 @@ jobs:
           path: vulnerability-scan-results.json
 
   ###################################################################
-  # 3) MALWARE SCAN
+  # 4) MALWARE SCAN
   ###################################################################
   malware-scan:
     if: ${{ vars.SECURITY_ENABLED != 'false' }}
-    needs: build
+    needs: push-to-ecr
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-
-      - name: Download Docker artifact
-        uses: actions/download-artifact@v3
+      - uses: actions/checkout@v4
+      
+      - uses: actions/download-artifact@v3
         with:
           name: docker-image
-          path: .
-
+      
       - name: Install Artifact Scan CLI
         run: ./tmas_install.sh
-
+      
       - name: Set TMAS_API_KEY
         run: echo "TMAS_API_KEY=${{ secrets.TMAS_API_KEY }}" >> $GITHUB_ENV
-
+      
       - name: Scan for Malware
         run: tmas scan docker-archive:firefly.tar -M > malware-scan-results.json
-
+      
       - name: Fail if malware is found
         run: |
           sudo apt-get update -y && sudo apt-get install -y jq
@@ -112,41 +151,38 @@ jobs:
           path: malware-scan-results.json
 
   ###################################################################
-  # 4) SECRETS SCAN
+  # 5) SECRETS SCAN
   ###################################################################
   secrets-scan:
     if: ${{ vars.SECURITY_ENABLED != 'false' }}
-    needs: build
+    needs: push-to-ecr
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-
-      - name: Download Docker artifact
-        uses: actions/download-artifact@v3
+      - uses: actions/checkout@v4
+      
+      - uses: actions/download-artifact@v3
         with:
           name: docker-image
-          path: .
-
+      
       - name: Install Artifact Scan CLI
         run: ./tmas_install.sh
-
+      
       - name: Set TMAS_API_KEY
         run: echo "TMAS_API_KEY=${{ secrets.TMAS_API_KEY }}" >> $GITHUB_ENV
-
+      
       - name: Scan for Secrets
         run: tmas scan docker-archive:firefly.tar -S > secrets-scan-results.json
-
+      
       - name: Fail if secrets found
         run: |
           sudo apt-get update -y && sudo apt-get install -y jq
-
+          
           SECRETS_COUNT=$(jq '.secrets.unmitigatedFindingsCount' secrets-scan-results.json)
           echo "Secrets found: $SECRETS_COUNT"
-
+          
           echo "=== SECRET DETAILS ==="
           jq -r '.secrets.findings.unmitigated[]? | "* Rule: \(.ruleID) | Path: \(.location.path)"' secrets-scan-results.json
-
+          
           if [ "$SECRETS_COUNT" -gt 0 ]; then
             echo "Secrets detected! Failing..."
             exit 1
@@ -160,38 +196,35 @@ jobs:
           path: secrets-scan-results.json
 
   ###################################################################
-  # 5) SBOM SCAN (Optional)
+  # 6) SBOM SCAN
   ###################################################################
   sbom-scan:
     if: ${{ vars.SECURITY_ENABLED != 'false' }}
-    needs: build
+    needs: push-to-ecr
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-
-      - name: Download Docker artifact
-        uses: actions/download-artifact@v3
+      - uses: actions/checkout@v4
+      
+      - uses: actions/download-artifact@v3
         with:
           name: docker-image
-          path: .
-
+      
       - name: Install Artifact Scan CLI
         run: ./tmas_install.sh
-
+      
       - name: Set TMAS_API_KEY
         run: echo "TMAS_API_KEY=${{ secrets.TMAS_API_KEY }}" >> $GITHUB_ENV
-
+      
       - name: Generate SBOM
         run: tmas scan docker-archive:firefly.tar -V --saveSBOM > sbom-scan-results.json
-
+      
       - name: Upload SBOM logs
         if: always()
         uses: actions/upload-artifact@v3
         with:
           name: sbom-scan-results
           path: sbom-scan-results.json
-
+      
       - name: Upload SBOM file
         if: always()
         uses: actions/upload-artifact@v3
@@ -200,38 +233,39 @@ jobs:
           path: SBOM_*.json
 
   ###################################################################
-  # 6) PUSH IMAGE
+  # 7) DEPLOY TO EKS
   ###################################################################
-  push-image:
-    needs:
-      - build
-      - vulnerabilities-scan
-      - malware-scan
-      - secrets-scan
-      - sbom-scan
-
-    # Single-line expression to avoid YAML parsing issues
-    if: ${{ always() && needs.vulnerabilities-scan.result != 'failure' && needs.malware-scan.result != 'failure' && needs.secrets-scan.result != 'failure' && needs.sbom-scan.result != 'failure' }}
-
+  deploy-to-eks:
+    needs: [vulnerabilities-scan, malware-scan, secrets-scan, sbom-scan]
+    if: |
+      always() &&
+      needs.vulnerabilities-scan.result != 'failure' &&
+      needs.malware-scan.result != 'failure' &&
+      needs.secrets-scan.result != 'failure' &&
+      needs.sbom-scan.result != 'failure'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-
-      - name: Download Docker artifact
-        uses: actions/download-artifact@v3
+      - uses: actions/checkout@v4
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          name: docker-image
-          path: .
-
-      - name: Load Docker image
-        run: docker load --input firefly.tar
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v2
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-
-      - name: Push Docker image
-        run: docker push fafiorim/firefly:latest
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+      
+      - name: Update kube config
+        run: aws eks update-kubeconfig --name ${{ secrets.EKS_CLUSTER_NAME }} --region ${{ secrets.AWS_REGION }}
+      
+      - name: Update deployment image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY_NAME }}
+        run: |
+          # Replace the image in the deployment file with the ECR image
+          sed -i "s|image:.*|image: $ECR_REGISTRY/$ECR_REPOSITORY:latest|" k8s/deployment.yaml
+          
+      - name: Deploy to EKS
+        run: |
+          kubectl apply -f k8s/deployment.yaml
+          kubectl apply -f k8s/service.yaml
