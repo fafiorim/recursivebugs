@@ -367,14 +367,14 @@ jobs:
           kubectl config current-context
       
       - name: Load ECR registry info
-        id: ecr
+        id: ecr-registry
         run: |
           ECR_REGISTRY=$(aws ecr describe-registry --query registryId --output text)
           echo "registry=${ECR_REGISTRY}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com" >> $GITHUB_OUTPUT
       
       - name: Update deployment image
         env:
-          ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
+          ECR_REGISTRY: ${{ steps.ecr-registry.outputs.registry }}
           ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY_NAME }}
         run: |
           echo "Updating deployment to use image: $ECR_REGISTRY/$ECR_REPOSITORY:latest"
