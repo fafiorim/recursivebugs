@@ -318,6 +318,51 @@ jobs:
           ECR_REGISTRY=$(aws ecr describe-registry --query registryId --output text)
           echo "registry=${ECR_REGISTRY}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com" >> $GITHUB_OUTPUT
       
+      - name: Prepare Kubernetes manifests
+        run: |
+          # Create k8s directory if it doesn't exist
+          mkdir -p k8s
+          
+          # Create deployment.yaml if it doesn't exist
+          cat << EOF > k8s/deployment.yaml
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: nginx-deployment
+            labels:
+              app: nginx
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: nginx
+            template:
+              metadata:
+                labels:
+                  app: nginx
+              spec:
+                containers:
+                - name: nginx
+                  image: nginx:latest
+                  ports:
+                  - containerPort: 80
+          EOF
+          
+          # Create service.yaml if it doesn't exist
+          cat << EOF > k8s/service.yaml
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: nginx-service
+          spec:
+            selector:
+              app: nginx
+            ports:
+            - port: 80
+              targetPort: 80
+            type: LoadBalancer
+          EOF
+      
       - name: Update deployment image
         env:
           ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
