@@ -299,8 +299,13 @@ jobs:
             exit 1
           fi
           
-      - name: Update kube config
-        run: aws eks update-kubeconfig --name ${{ vars.EKS_CLUSTER_NAME }} --region ${{ secrets.AWS_REGION }}
+      - name: Extract cluster name and update kube config
+        run: |
+          FULL_CLUSTER_NAME="${{ vars.EKS_CLUSTER_NAME }}"
+          # Extract just the cluster name part (gha***) from franz@gha***.***.eksctl.io
+          CLUSTER_NAME=$(echo $FULL_CLUSTER_NAME | cut -d'@' -f2 | cut -d'.' -f1)
+          echo "Using cluster name: $CLUSTER_NAME"
+          aws eks update-kubeconfig --name $CLUSTER_NAME --region ${{ secrets.AWS_REGION }}
       
       - name: Verify cluster access
         run: |
