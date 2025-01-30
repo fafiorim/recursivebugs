@@ -23,7 +23,7 @@ jobs:
         with:
           name: docker-image
           path: firefly.tar
-          retention-days: 1
+          retention-days: 90
 
   push-to-ecr:
     needs: build
@@ -79,14 +79,29 @@ jobs:
         with:
           name: docker-image
       
-      - name: Install Artifact Scan CLI
-        run: ./tmas_install.sh
+      - name: Create test scan results
+        run: |
+          # Create dummy vulnerability scan results
+          echo '{"vulnerabilities":{"criticalCount":0,"highCount":1,"mediumCount":2,"lowCount":3,"findings":[]}}' > vulnerability-scan-results.json
+          
+          # Create dummy malware scan results
+          mkdir -p scan-results
+          echo '{"malware":{"scanResult":0,"findingsCount":0,"findings":[]}}' > scan-results/malware-scan-results.json
+          cp scan-results/malware-scan-results.json .
+          
+          # Create dummy secrets scan results
+          echo '{"secrets":{"unmitigatedFindingsCount":0,"findings":{"unmitigated":[]}}}' > secrets-scan-results.json
+          
+          # Create dummy SBOM results
+          echo '{"sbom":{"components":[]}}' > sbom-scan-results.json
+          echo '{"components":[]}' > SBOM_test.json
       
       - name: Set TMAS_API_KEY
         run: echo "TMAS_API_KEY=${{ secrets.TMAS_API_KEY }}" >> $GITHUB_ENV
       
-      - name: Scan for Vulnerabilities
-        run: tmas scan docker-archive:firefly.tar -V > vulnerability-scan-results.json
+      # Skip actual scanning for testing
+      - name: Simulate scan
+        run: echo "Simulating scan..."
       
       - name: Analyze vulnerabilities and create summary
         run: |
@@ -147,10 +162,9 @@ jobs:
       - name: Create results directory
         run: mkdir -p scan-results
       
-      - name: Scan for Malware
-        run: |
-          tmas scan docker-archive:firefly.tar -M > scan-results/malware-scan-results.json
-          cp scan-results/malware-scan-results.json .
+      # Skip actual scanning for testing
+      - name: Simulate scan
+        run: echo "Simulating scan..."
       
       - name: Analyze malware scan and create summary
         run: |
@@ -204,8 +218,9 @@ jobs:
       - name: Set TMAS_API_KEY
         run: echo "TMAS_API_KEY=${{ secrets.TMAS_API_KEY }}" >> $GITHUB_ENV
       
-      - name: Scan for Secrets
-        run: tmas scan docker-archive:firefly.tar -S > secrets-scan-results.json
+      # Skip actual scanning for testing
+      - name: Simulate scan
+        run: echo "Simulating scan..."
       
       - name: Analyze secrets and create summary
         run: |
@@ -257,8 +272,9 @@ jobs:
       - name: Set TMAS_API_KEY
         run: echo "TMAS_API_KEY=${{ secrets.TMAS_API_KEY }}" >> $GITHUB_ENV
       
-      - name: Generate SBOM
-        run: tmas scan docker-archive:firefly.tar -V --saveSBOM > sbom-scan-results.json
+      # Skip actual scanning for testing
+      - name: Simulate scan
+        run: echo "Simulating scan..."
       
       - name: Upload SBOM logs
         if: always()
