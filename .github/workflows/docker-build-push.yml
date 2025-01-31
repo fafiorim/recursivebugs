@@ -157,7 +157,7 @@ jobs:
           echo "## 🦠 Malware Scan Results" >> $GITHUB_STEP_SUMMARY
           
           CODE=$(jq '.malware.scanResult' scan-results/malware-scan-results.json)
-          COUNT=$(jq '.malware.findingsCount // 0' scan-results/malware-scan-results.json)
+          COUNT=$(jq '.malware.findings | length' scan-results/malware-scan-results.json)
           
           echo "### Overview" >> $GITHUB_STEP_SUMMARY
           echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
