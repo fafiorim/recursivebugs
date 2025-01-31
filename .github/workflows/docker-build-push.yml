@@ -377,5 +377,6 @@ jobs:
           LB_HOSTNAME=$(kubectl get service nginx-service -o jsonpath="{.status.loadBalancer.ingress[0].hostname}")
           if [ ! -z "$LB_HOSTNAME" ]; then
             echo "### 🌐 Access URL" >> $GITHUB_STEP_SUMMARY
-            echo "Application is accessible at: http://$LB_HOSTNAME" >> $GITHUB_STEP_SUMMARY
+            echo "Application is accessible at: http://${LB_HOSTNAME}" >> $GITHUB_STEP_SUMMARY
+            echo "Region: ${{ secrets.AWS_REGION }}" >> $GITHUB_STEP_SUMMARY
           fi
