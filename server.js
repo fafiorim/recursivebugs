@@ -18,19 +18,7 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage: storage });
 
-// User database
-const users = {
-  admin: {
-    password: '$2b$10$rZB2oyvKgVu8TFZ.F8hKx.K0vgz9SyN5HEtF9zKqBAEHn7hL3R5Ji', // &f0f482d*2d18
-    role: 'admin'
-  },
-  user: {
-    password: '$2b$10$G0NbEY1TNXDcpvNEJqAKz.OVxnD.CMERqG5OFJUzNrZYcMHKL0K2q', // &f0f482da2d18
-    role: 'user'
-  }
-};
-
-// Middleware
+// Session configuration
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(session({
@@ -60,10 +48,25 @@ app.get('/login', (req, res) => {
 
 app.post('/login', async (req, res) => {
   const { username, password } = req.body;
-  const user = users[username];
+  
+  // Get plain passwords from secrets
+  const userPasswords = {
+    [${{ vars.ADMIN_USERNAME }}]: ${{ secrets.ADMIN_PASSWORD }},
+    [${{ vars.USER_USERNAME }}]: ${{ secrets.USER_PASSWORD }}
+  };
 
-  if (user && await bcrypt.compare(password, user.password)) {
-    req.session.user = { username, role: user.role };
+  // Hash the provided password and compare
+  const userPassword = userPasswords[username];
+  if (!userPassword) {
+    return res.redirect('/login?error=1');
+  }
+
+  const hashedPassword = await bcrypt.hash(userPassword, 10);
+  if (await bcrypt.compare(password, hashedPassword)) {
+    req.session.user = { 
+      username,
+      role: username === ${{ vars.ADMIN_USERNAME }} ? 'admin' : 'user'
+    };
     res.redirect('/dashboard');
   } else {
     res.redirect('/login?error=1');
