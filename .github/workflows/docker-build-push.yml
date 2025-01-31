@@ -356,6 +356,26 @@ jobs:
           kubectl apply -f k8s/deployment.yaml
           kubectl apply -f k8s/service.yaml
           kubectl rollout status deployment/nginx-deployment
-          kubectl get deployments
-          kubectl get pods
-          kubectl get services
+          
+          echo "## 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "### Deployments" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          kubectl get deployments -o wide >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### Pods" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          kubectl get pods -o wide >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### Services" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          kubectl get services -o wide >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          
+          # Get LoadBalancer URL if available
+          LB_HOSTNAME=$(kubectl get service nginx-service -o jsonpath="{.status.loadBalancer.ingress[0].hostname}")
+          if [ ! -z "$LB_HOSTNAME" ]; then
+            echo "### 🌐 Access URL" >> $GITHUB_STEP_SUMMARY
+            echo "Application is accessible at: http://$LB_HOSTNAME" >> $GITHUB_STEP_SUMMARY
+          fi
