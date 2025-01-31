@@ -23,6 +23,7 @@ jobs:
         with:
           name: docker-image
           path: firefly.tar
+          retention-days: 90
 
   push-to-ecr:
     needs: build
@@ -122,6 +123,7 @@ jobs:
         with:
           name: vulnerability-scan-results
           path: vulnerability-scan-results.json
+          retention-days: 90
 
   malware-scan:
     if: ${{ vars.SECURITY_ENABLED != 'false' }}
@@ -192,6 +194,7 @@ jobs:
           path: |
             scan-results/malware-scan-results.json
             malware-scan-results.json
+          retention-days: 90
 
   secrets-scan:
     if: ${{ vars.SECURITY_ENABLED != 'false' }}
@@ -245,6 +248,7 @@ jobs:
         with:
           name: secrets-scan-results
           path: secrets-scan-results.json
+          retention-days: 90
 
   sbom-scan:
     if: ${{ vars.SECURITY_ENABLED != 'false' }}
@@ -272,6 +276,7 @@ jobs:
         with:
           name: sbom-scan-results
           path: sbom-scan-results.json
+          retention-days: 90
       
       - name: Upload SBOM file
         if: always()
@@ -279,6 +284,7 @@ jobs:
         with:
           name: sbom-report
           path: SBOM_*.json
+          retention-days: 90
 
   deploy-to-eks:
     needs: [vulnerabilities-scan, malware-scan, secrets-scan, sbom-scan]
