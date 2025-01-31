@@ -302,63 +302,83 @@ jobs:
           path: SBOM_*.json
           retention-days: 90
 
-  deploy-to-k8s:
-    needs: [vulnerabilities-scan, malware-scan, secrets-scan, sbom-scan]
-    if: >
-      always() && (
-        ${{ vars.SECURITY_MODE != 'protect' }} || (
-          needs.vulnerabilities-scan.result != 'failure' && 
-          needs.malware-scan.result != 'failure' && 
-          needs.secrets-scan.result != 'failure' && 
-          needs.sbom-scan.result != 'failure'
-        )
+deploy-to-k8s:
+  needs: [vulnerabilities-scan, malware-scan, secrets-scan, sbom-scan]
+  if: >
+    always() && (
+      ${{ vars.SECURITY_MODE != 'protect' }} || (
+        needs.vulnerabilities-scan.result != 'failure' && 
+        needs.malware-scan.result != 'failure' && 
+        needs.secrets-scan.result != 'failure' && 
+        needs.sbom-scan.result != 'failure'
       )
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ vars.AWS_REGION }}
+    )
+  runs-on: ubuntu-latest
+  steps:
+    - uses: actions/checkout@v4
+    
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ vars.AWS_REGION }}
 
-      - name: List available EKS clusters
-        run: aws eks list-clusters
-      
-      - name: Check required variables
-        run: |
-          if [ -z "${{ vars.EKS_CLUSTER_NAME }}" ]; then
-            echo "Error: EKS_CLUSTER_NAME variable is not set"
-            exit 1
-          fi
-          
-      - name: Extract cluster name and update kube config
-        run: |
-          FULL_CLUSTER_NAME="${{ vars.EKS_CLUSTER_NAME }}"
-          CLUSTER_NAME=$(echo $FULL_CLUSTER_NAME | cut -d'@' -f2 | cut -d'.' -f1)
-          echo "Using cluster name: $CLUSTER_NAME"
-          aws eks update-kubeconfig --name $CLUSTER_NAME --region ${{ vars.AWS_REGION }}
-      
-      - name: Verify cluster access
-        run: |
-          kubectl cluster-info
-          kubectl config current-context
-      
-      - name: Get ECR registry
-        id: ecr
-        run: |
-          ECR_REGISTRY=$(aws ecr describe-registry --query registryId --output text)
-          echo "registry=${ECR_REGISTRY}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com" >> $GITHUB_OUTPUT
+    - name: List available EKS clusters
+      run: aws eks list-clusters
+    
+    - name: Check required variables
+      run: |
+        if [ -z "${{ vars.EKS_CLUSTER_NAME }}" ]; then
+          echo "Error: EKS_CLUSTER_NAME variable is not set"
+          exit 1
+        fi
+        
+    - name: Extract cluster name and update kube config
+      run: |
+        FULL_CLUSTER_NAME="${{ vars.EKS_CLUSTER_NAME }}"
+        CLUSTER_NAME=$(echo $FULL_CLUSTER_NAME | cut -d'@' -f2 | cut -d'.' -f1)
+        echo "Using cluster name: $CLUSTER_NAME"
+        aws eks update-kubeconfig --name $CLUSTER_NAME --region ${{ vars.AWS_REGION }}
+    
+    - name: Verify cluster access
+      run: |
+        kubectl cluster-info
+        kubectl config current-context
+    
+    - name: Get ECR registry
+      id: ecr
+      run: |
+        ECR_REGISTRY=$(aws ecr describe-registry --query registryId --output text)
+        echo "registry=${ECR_REGISTRY}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com" >> $GITHUB_OUTPUT
 
-      - name: Security mode summary
-        run: |
-          echo "## 🔐 Security Configuration" >> $GITHUB_STEP_SUMMARY
-          echo "| Setting | Value | Description |" >> $GITHUB_STEP_SUMMARY
-          echo "|----------|---------|-------------|" >> $GITHUB_STEP_SUMMARY
-          if [ "${{ env.SECURITY_MODE }}" = "protect" ]; then
-            echo "| Mode | 🛡️ PROTECT | Pipeline will fail if vulnerabilities, malware, or secrets are found |" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "| Mode | 📝 LOG | Pipeline will continue regardless of scan findings |" >> $GITHUB_STEP_SUMMARY
-          fi
+    - name: Update Kubernetes Deployment Image
+      run: |
+        # Diagnostic output
+        echo "ECR Registry: ${{ steps.ecr.outputs.registry }}"
+        echo "ECR Repository: ${{ secrets.ECR_REPOSITORY_NAME }}"
+        
+        # Replace the image in the deployment with the ECR image
+        sed -i "s|image: nginx:latest|image: ${{ steps.ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY_NAME }}:latest|g" k8s/deployment.yaml
+
+    - name: Deploy to Kubernetes
+      run: |
+        kubectl apply -f k8s/deployment.yaml
+        kubectl apply -f k8s/service.yaml
+
+    - name: Verify Deployment
+      run: |
+        kubectl get deployments
+        kubectl get services
+        kubectl get pods
+
+    - name: Security mode summary
+      run: |
+        echo "## 🔐 Security Configuration" >> $GITHUB_STEP_SUMMARY
+        echo "| Setting | Value | Description |" >> $GITHUB_STEP_SUMMARY
+        echo "|----------|---------|-------------|" >> $GITHUB_STEP_SUMMARY
+        if [ "${{ env.SECURITY_MODE }}" = "protect" ]; then
+          echo "| Mode | 🛡️ PROTECT | Pipeline will fail if vulnerabilities, malware, or secrets are found |" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "| Mode | 📝 LOG | Pipeline will continue regardless of scan findings |" >> $GITHUB_STEP_SUMMARY
+        fi
