@@ -19,7 +19,7 @@ jobs:
         run: docker save fafiorim/firefly:latest -o firefly.tar
       
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: docker-image
           path: firefly.tar
@@ -30,7 +30,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4
         with:
           name: docker-image
       
@@ -73,7 +73,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4
         with:
           name: docker-image
       
@@ -118,7 +118,7 @@ jobs:
 
       - name: Upload vulnerability logs
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: vulnerability-scan-results
           path: vulnerability-scan-results.json
@@ -130,7 +130,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4
         with:
           name: docker-image
       
@@ -176,7 +176,7 @@ jobs:
 
       - name: Upload malware logs
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: malware-scan-results
           path: |
@@ -190,7 +190,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4
         with:
           name: docker-image
       
@@ -231,7 +231,7 @@ jobs:
 
       - name: Upload secrets logs
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: secrets-scan-results
           path: secrets-scan-results.json
@@ -243,7 +243,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4
         with:
           name: docker-image
       
@@ -258,14 +258,14 @@ jobs:
       
       - name: Upload SBOM logs
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: sbom-scan-results
           path: sbom-scan-results.json
       
       - name: Upload SBOM file
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: sbom-report
           path: SBOM_*.json
@@ -318,6 +318,29 @@ jobs:
           ECR_REGISTRY=$(aws ecr describe-registry --query registryId --output text)
           echo "registry=${ECR_REGISTRY}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com" >> $GITHUB_OUTPUT
       
+      - name: Prepare Kubernetes manifests
+        run: |
+          # Create k8s directory if it doesn't exist
+          mkdir -p k8s
+          
+          # Create deployment.yaml if it doesn't exist
+          cat << EOF > k8s/deployment.yaml
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: nginx-deployment
+            labels:
+              app: nginx
+          spec:
+            replicas: 1
+            selector:
+              app: nginx
+            ports:
+            - port: 80
+              targetPort: 80
+            type: LoadBalancer
+          EOF
+      
       - name: Update deployment image
         env:
           ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
@@ -334,4 +357,26 @@ jobs:
           kubectl rollout status deployment/nginx-deployment
           kubectl get deployments
           kubectl get pods
-          kubectl get services
+          kubectl get services:
+              matchLabels:
+                app: nginx
+            template:
+              metadata:
+                labels:
+                  app: nginx
+              spec:
+                containers:
+                - name: nginx
+                  image: nginx:latest
+                  ports:
+                  - containerPort: 80
+          EOF
+          
+          # Create service.yaml if it doesn't exist
+          cat << EOF > k8s/service.yaml
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: nginx-service
+          spec:
+            selector
