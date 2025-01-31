@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [ main ]
 
+env:
+  SECURITY_MODE: ${{ vars.SECURITY_MODE || 'protect' }}
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -68,7 +71,6 @@ jobs:
           echo "IMAGE=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_ENV
 
   vulnerabilities-scan:
-    if: ${{ vars.SECURITY_ENABLED != 'false' }}
     needs: push-to-ecr
     runs-on: ubuntu-latest
     steps:
@@ -84,6 +86,10 @@ jobs:
       - name: Set TMAS_API_KEY
         run: echo "TMAS_API_KEY=${{ secrets.TMAS_API_KEY }}" >> $GITHUB_ENV
       
+      - name: Security mode notice
+        run: |
+          echo "Running in ${{ env.SECURITY_MODE }} mode - $([ "${{ env.SECURITY_MODE }}" = "protect" ] && echo "will fail on findings" || echo "logging findings only")"
+
       - name: Scan for Vulnerabilities
         run: tmas scan docker-archive:firefly.tar -V > vulnerability-scan-results.json
       
@@ -111,8 +117,13 @@ jobs:
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
             jq -r '.vulnerabilities.findings[] | select(.severity=="CRITICAL") | "- "+.id+": "+.description' vulnerability-scan-results.json >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-            echo "Critical vulnerabilities found! Failing..."
-            exit 1
+            
+            if [ "${{ env.SECURITY_MODE }}" = "protect" ]; then
+              echo "Critical vulnerabilities found in PROTECT mode! Failing..."
+              exit 1
+            else
+              echo "Running in LOG mode - documenting findings only"
+            fi
           else
             echo "### ✅ No Critical Vulnerabilities Found" >> $GITHUB_STEP_SUMMARY
           fi
@@ -126,7 +137,6 @@ jobs:
           retention-days: 90
 
   malware-scan:
-    if: ${{ vars.SECURITY_ENABLED != 'false' }}
     needs: push-to-ecr
     runs-on: ubuntu-latest
     steps:
@@ -171,7 +181,6 @@ jobs:
             echo "|------|------|--------------|" >> $GITHUB_STEP_SUMMARY
             jq -r '.malware.findings[] | "| \(.fileName) | \(.fileSize) bytes | \(.foundMalwares[0].malwareName) |"' scan-results/malware-scan-results.json >> $GITHUB_STEP_SUMMARY
             
-            # Detailed findings for debugging
             echo "### Detailed Scan Information" >> $GITHUB_STEP_SUMMARY
             SCANNER_VERSION=$(jq -r '.malware.scannerVersion' scan-results/malware-scan-results.json)
             SCAN_ID=$(jq -r '.malware.scanID' scan-results/malware-scan-results.json)
@@ -181,8 +190,12 @@ jobs:
             echo "- Scan ID: $SCAN_ID" >> $GITHUB_STEP_SUMMARY
             echo "- Layer Info: $LAYER_DIGEST" >> $GITHUB_STEP_SUMMARY
             
-            echo "Malware detected! Failing..."
-            exit 1
+            if [ "${{ env.SECURITY_MODE }}" = "protect" ]; then
+              echo "Malware detected in PROTECT mode! Failing..."
+              exit 1
+            else
+              echo "Running in LOG mode - documenting findings only"
+            fi
           else
             echo "### ✅ No Malware Detected" >> $GITHUB_STEP_SUMMARY
           fi
@@ -198,7 +211,6 @@ jobs:
           retention-days: 90
 
   secrets-scan:
-    if: ${{ vars.SECURITY_ENABLED != 'false' }}
     needs: push-to-ecr
     runs-on: ubuntu-latest
     steps:
@@ -237,8 +249,12 @@ jobs:
             echo "|---------|-----------|" >> $GITHUB_STEP_SUMMARY
             jq -r '.secrets.findings.unmitigated[]? | "| \(.ruleID) | \(.location.path) |"' secrets-scan-results.json >> $GITHUB_STEP_SUMMARY
             
-            echo "Secrets detected! Failing..."
-            exit 1
+            if [ "${{ env.SECURITY_MODE }}" = "protect" ]; then
+              echo "Secrets detected in PROTECT mode! Failing..."
+              exit 1
+            else
+              echo "Running in LOG mode - documenting findings only"
+            fi
           else
             echo "### ✅ No Secrets Found" >> $GITHUB_STEP_SUMMARY
           fi
@@ -252,7 +268,6 @@ jobs:
           retention-days: 90
 
   sbom-scan:
-    if: ${{ vars.SECURITY_ENABLED != 'false' }}
     needs: push-to-ecr
     runs-on: ubuntu-latest
     steps:
@@ -290,11 +305,12 @@ jobs:
   deploy-to-k8s:
     needs: [vulnerabilities-scan, malware-scan, secrets-scan, sbom-scan]
     if: |
-      always() &&
-      needs.vulnerabilities-scan.result != 'failure' &&
-      needs.malware-scan.result != 'failure' &&
-      needs.secrets-scan.result != 'failure' &&
-      needs.sbom-scan.result != 'failure'
+      always() && 
+      (env.SECURITY_MODE != 'protect' || 
+      (needs.vulnerabilities-scan.result != 'failure' && 
+      needs.malware-scan.result != 'failure' && 
+      needs.secrets-scan.result != 'failure' && 
+      needs.sbom-scan.result != 'failure'))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -304,7 +320,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          aws-region: ${{ vars.AWS_REGION }}
 
       - name: List available EKS clusters
         run: aws eks list-clusters
@@ -321,7 +337,7 @@ jobs:
           FULL_CLUSTER_NAME="${{ vars.EKS_CLUSTER_NAME }}"
           CLUSTER_NAME=$(echo $FULL_CLUSTER_NAME | cut -d'@' -f2 | cut -d'.' -f1)
           echo "Using cluster name: $CLUSTER_NAME"
-          aws eks update-kubeconfig --name $CLUSTER_NAME --region ${{ secrets.AWS_REGION }}
+          aws eks update-kubeconfig --name $CLUSTER_NAME --region ${{ vars.AWS_REGION }}
       
       - name: Verify cluster access
         run: |
@@ -334,46 +350,13 @@ jobs:
           ECR_REGISTRY=$(aws ecr describe-registry --query registryId --output text)
           echo "registry=${ECR_REGISTRY}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com" >> $GITHUB_OUTPUT
 
-      - name: Check for k8s manifests
+      - name: Security mode summary
         run: |
-          if [ ! -f "k8s/deployment.yaml" ] || [ ! -f "k8s/service.yaml" ]; then
-            echo "Error: Required Kubernetes manifests not found in k8s/ directory"
-            echo "Please ensure both deployment.yaml and service.yaml exist in the k8s/ directory"
-            exit 1
-          fi
-
-      - name: Update deployment image
-        env:
-          ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
-          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY_NAME }}
-        run: |
-          echo "Updating deployment to use image: $ECR_REGISTRY/$ECR_REPOSITORY:latest"
-          sed -i "s|image: nginx:latest.*|image: $ECR_REGISTRY/$ECR_REPOSITORY:latest|" k8s/deployment.yaml
-          sed -i "s|name: nginx-deployment|name: bytevault-deployment|" k8s/deployment.yaml
-          sed -i "s|name: nginx-service|name: bytevault-service|" k8s/service.yaml
-          cat k8s/deployment.yaml
-          
-      - name: Deploy to k8s cluster
-        run: |
-          kubectl apply -f k8s/deployment.yaml
-          kubectl apply -f k8s/service.yaml
-          kubectl rollout status deployment/nginx-deployment
-          
-          echo "### 📝 Deployment Note" >> $GITHUB_STEP_SUMMARY
-          echo "To view deployment status and details, use these commands:" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
-          echo "kubectl get deployments -o wide  # View deployments" >> $GITHUB_STEP_SUMMARY
-          echo "kubectl get pods -o wide         # View pods" >> $GITHUB_STEP_SUMMARY
-          echo "kubectl get services -o wide     # View services" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          
-          # Get LoadBalancer URL and details
-          LB_HOSTNAME=$(kubectl get service nginx-service -o jsonpath="{.status.loadBalancer.ingress[0].hostname}")
-          if [ ! -z "$LB_HOSTNAME" ]; then
-            echo "### 🌐 Service Access" >> $GITHUB_STEP_SUMMARY
-            echo "| Information | Value |" >> $GITHUB_STEP_SUMMARY
-            echo "|------------|--------|" >> $GITHUB_STEP_SUMMARY
-            echo "| URL | http://${LB_HOSTNAME} |" >> $GITHUB_STEP_SUMMARY
-            echo "| Region | ${{ vars.AWS_REGION }} |" >> $GITHUB_STEP_SUMMARY
-            echo "| Port | 80 |" >> $GITHUB_STEP_SUMMARY
+          echo "## 🔐 Security Configuration" >> $GITHUB_STEP_SUMMARY
+          echo "| Setting | Value | Description |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|---------|-------------|" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ env.SECURITY_MODE }}" = "protect" ]; then
+            echo "| Mode | 🛡️ PROTECT | Pipeline will fail if vulnerabilities, malware, or secrets are found |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Mode | 📝 LOG | Pipeline will continue regardless of scan findings |" >> $GITHUB_STEP_SUMMARY
           fi
