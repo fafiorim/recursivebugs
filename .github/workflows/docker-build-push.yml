@@ -40,7 +40,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          aws-region: ${{ vars.AWS_REGION }}
       
       - name: Login to Amazon ECR
         id: login-ecr
@@ -373,10 +373,13 @@ jobs:
           kubectl get services -o wide >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           
-          # Get LoadBalancer URL if available
+          # Get LoadBalancer URL and details
           LB_HOSTNAME=$(kubectl get service nginx-service -o jsonpath="{.status.loadBalancer.ingress[0].hostname}")
           if [ ! -z "$LB_HOSTNAME" ]; then
-            echo "### 🌐 Access URL" >> $GITHUB_STEP_SUMMARY
-            echo "Application is accessible at: http://${LB_HOSTNAME}" >> $GITHUB_STEP_SUMMARY
-            echo "Region: ${{ secrets.AWS_REGION }}" >> $GITHUB_STEP_SUMMARY
+            echo "### 🌐 Service Access" >> $GITHUB_STEP_SUMMARY
+            echo "| Information | Value |" >> $GITHUB_STEP_SUMMARY
+            echo "|------------|--------|" >> $GITHUB_STEP_SUMMARY
+            echo "| URL | http://${LB_HOSTNAME} |" >> $GITHUB_STEP_SUMMARY
+            echo "| Region | ${{ vars.AWS_REGION }} |" >> $GITHUB_STEP_SUMMARY
+            echo "| Port | 80 |" >> $GITHUB_STEP_SUMMARY
           fi
