@@ -332,7 +332,7 @@ jobs:
         id: ecr
         run: |
           ECR_REGISTRY=$(aws ecr describe-registry --query registryId --output text)
-          echo "registry=${ECR_REGISTRY}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com" >> $GITHUB_OUTPUT
+          echo "registry=${ECR_REGISTRY}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com" >> $GITHUB_OUTPUT
 
       - name: Check for k8s manifests
         run: |
@@ -357,20 +357,12 @@ jobs:
           kubectl apply -f k8s/service.yaml
           kubectl rollout status deployment/nginx-deployment
           
-          echo "## 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
-          echo "### Deployments" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          kubectl get deployments -o wide >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          
-          echo "### Pods" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          kubectl get pods -o wide >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          
-          echo "### Services" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          kubectl get services -o wide >> $GITHUB_STEP_SUMMARY
+          echo "### 📝 Deployment Note" >> $GITHUB_STEP_SUMMARY
+          echo "To view deployment status and details, use these commands:" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "kubectl get deployments -o wide  # View deployments" >> $GITHUB_STEP_SUMMARY
+          echo "kubectl get pods -o wide         # View pods" >> $GITHUB_STEP_SUMMARY
+          echo "kubectl get services -o wide     # View services" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           
           # Get LoadBalancer URL and details
