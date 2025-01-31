@@ -171,9 +171,13 @@ jobs:
             
             # Detailed findings for debugging
             echo "### Detailed Scan Information" >> $GITHUB_STEP_SUMMARY
-            echo "- Scanner Version: \$(jq -r '.malware.scannerVersion' scan-results/malware-scan-results.json)" >> $GITHUB_STEP_SUMMARY
-            echo "- Scan ID: \$(jq -r '.malware.scanID' scan-results/malware-scan-results.json)" >> $GITHUB_STEP_SUMMARY
-            echo "- Layer Info: \$(jq -r '.malware.findings[0].layerDigest' scan-results/malware-scan-results.json)" >> $GITHUB_STEP_SUMMARY
+            SCANNER_VERSION=$(jq -r '.malware.scannerVersion' scan-results/malware-scan-results.json)
+            SCAN_ID=$(jq -r '.malware.scanID' scan-results/malware-scan-results.json)
+            LAYER_DIGEST=$(jq -r '.malware.findings[0].layerDigest' scan-results/malware-scan-results.json)
+            
+            echo "- Scanner Version: $SCANNER_VERSION" >> $GITHUB_STEP_SUMMARY
+            echo "- Scan ID: $SCAN_ID" >> $GITHUB_STEP_SUMMARY
+            echo "- Layer Info: $LAYER_DIGEST" >> $GITHUB_STEP_SUMMARY
             echo "Malware detected! Failing..."
             exit 1
           else
