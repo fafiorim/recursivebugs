@@ -1,26 +1,34 @@
-# ByteVault - Secure File Storage with GitOps Pipeline
+# ByteVault: Secure File Storage with Advanced Security Pipeline
 
-This repository demonstrates a secure GitOps pipeline for deploying ByteVault, a file storage application, using Trend Micro Artifact Scanning and GitHub Actions.
+A secure file storage application with comprehensive security scanning pipeline powered by Trend Micro Artifact Scanner.
 
 ## Features
 
-- **ByteVault Application**
-  - Secure file upload and storage
-  - User authentication (admin/user roles)
-  - File management interface
-  - Built with Node.js and Express
+### Application
+- File upload/download with web interface
+- User authentication (admin/user roles)
+- File management capabilities
+- Node.js + Express backend
+- Responsive frontend design
 
-- **Security Pipeline**
-  - Multiple scan types: vulnerabilities, malware, secrets, SBOM
-  - Two security modes:
-    - `protect`: Fails pipeline on security findings
-    - `log`: Documents findings without blocking deployment
-  - AWS ECR integration for image storage
-  - EKS deployment with security checks
+### Security Pipeline
+- Multiple security scan types
+  - Vulnerability assessment
+  - Malware detection
+  - Secret scanning
+  - SBOM generation
+- Two security modes:
+  - `protect`: Blocks deployment on security findings
+  - `log`: Documents findings without blocking
+
+### Infrastructure
+- Container-based deployment
+- AWS ECR for image storage
+- EKS deployment with security checks
+- LoadBalancer service exposure
 
 ## Repository Structure
-
-```text
+```
 .
 ├── Dockerfile
 ├── server.js
@@ -40,55 +48,61 @@ This repository demonstrates a secure GitOps pipeline for deploying ByteVault, a
 
 ## Prerequisites
 
-1. **AWS Account**
-   - ECR repository
-   - EKS cluster
-   - IAM credentials
+### AWS Configuration
+- ECR repository
+- EKS cluster
+- IAM credentials with appropriate permissions
 
-2. **Trend Micro Artifact Scan**
-   - TMAS API key
+### GitHub Configuration
+- **Secrets:**
+  - AWS_ACCESS_KEY_ID
+  - AWS_SECRET_ACCESS_KEY
+  - ECR_REPOSITORY_NAME
+  - TMAS_API_KEY
+  - ADMIN_PASSWORD
+  - USER_PASSWORD
+- **Variables:**
+  - AWS_REGION
+  - EKS_CLUSTER_NAME
+  - SECURITY_MODE (protect/log)
+  - ADMIN_USERNAME
+  - USER_USERNAME
 
-3. **GitHub Repository Configuration**
-   - **Secrets:**
-     - AWS_ACCESS_KEY_ID
-     - AWS_SECRET_ACCESS_KEY
-     - ECR_REPOSITORY_NAME
-     - TMAS_API_KEY
-   - **Variables:**
-     - AWS_REGION
-     - EKS_CLUSTER_NAME
-     - SECURITY_MODE (protect/log)
+## Security Pipeline Flow
 
-## Application Usage
-
-- **Login Credentials:**
-  - Admin: username=admin, password=&f0f482d*2d18
-  - User: username=user, password=&f0f482da2d18
-
-## Pipeline Overview
-
-1. **Build**: Packages Node.js application into Docker image
-2. **Push**: Uploads image to AWS ECR
+1. **Build**: Creates Docker image
+2. **Push**: Uploads to AWS ECR
 3. **Security Scans**: 
-   - Vulnerabilities
-   - Malware
-   - Secrets
-   - SBOM generation
-4. **Deploy**: EKS deployment if security checks pass (or in log mode)
+   - If `protect` mode: stops on any findings
+   - If `log` mode: documents findings and continues
+4. **Deploy**: EKS deployment if checks pass
 
-## Security Modes
+## Usage
 
-### Protect Mode (Default)
-- Fails pipeline on:
-  - Critical vulnerabilities
-  - Malware detection
-  - Secret detection
-- Prevents compromised images from deploying
+### Access Credentials
+- Admin access: `${{ vars.ADMIN_USERNAME }}`
+- User access: `${{ vars.USER_USERNAME }}`
 
-### Log Mode
-- Reports security findings
-- Continues pipeline execution
-- Useful for testing and evaluation
+### Deployment
+```bash
+# View deployments
+kubectl get deployments -o wide
+
+# View services
+kubectl get services -o wide
+
+# Check pods
+kubectl get pods -o wide
+```
+
+### Security Modes
+```bash
+# Set protect mode
+SECURITY_MODE=protect
+
+# Set log mode
+SECURITY_MODE=log
+```
 
 ## Contributing
 
@@ -96,7 +110,7 @@ This repository demonstrates a secure GitOps pipeline for deploying ByteVault, a
 2. Create feature branch
 3. Commit changes
 4. Push to branch
-5. Open Pull Request
+5. Submit Pull Request
 
 ## License
 

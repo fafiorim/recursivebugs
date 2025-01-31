@@ -80,16 +80,16 @@ jobs:
         with:
           name: docker-image
       
-      - name: Security mode notice
-        run: |
-          echo "Running in ${{ vars.SECURITY_MODE }} mode - $([ "${{ vars.SECURITY_MODE }}" = "protect" ] && echo "will fail on findings" || echo "logging findings only")"
-      
       - name: Install Artifact Scan CLI
         run: ./tmas_install.sh
       
       - name: Set TMAS_API_KEY
         run: echo "TMAS_API_KEY=${{ secrets.TMAS_API_KEY }}" >> $GITHUB_ENV
       
+      - name: Security mode notice
+        run: |
+          echo "Running in ${{ env.SECURITY_MODE }} mode - $([ "${{ env.SECURITY_MODE }}" = "protect" ] && echo "will fail on findings" || echo "logging findings only")"
+
       - name: Scan for Vulnerabilities
         run: tmas scan docker-archive:firefly.tar -V > vulnerability-scan-results.json
       
@@ -118,7 +118,7 @@ jobs:
             jq -r '.vulnerabilities.findings[] | select(.severity=="CRITICAL") | "- "+.id+": "+.description' vulnerability-scan-results.json >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
             
-            if [ "${{ vars.SECURITY_MODE }}" = "protect" ]; then
+            if [ "${{ env.SECURITY_MODE }}" = "protect" ]; then
               echo "Critical vulnerabilities found in PROTECT mode! Failing..."
               exit 1
             else
@@ -145,10 +145,6 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: docker-image
-      
-      - name: Security mode notice
-        run: |
-          echo "Running in ${{ vars.SECURITY_MODE }} mode - $([ "${{ vars.SECURITY_MODE }}" = "protect" ] && echo "will fail on findings" || echo "logging findings only")"
       
       - name: Install Artifact Scan CLI
         run: ./tmas_install.sh
@@ -194,7 +190,7 @@ jobs:
             echo "- Scan ID: $SCAN_ID" >> $GITHUB_STEP_SUMMARY
             echo "- Layer Info: $LAYER_DIGEST" >> $GITHUB_STEP_SUMMARY
             
-            if [ "${{ vars.SECURITY_MODE }}" = "protect" ]; then
+            if [ "${{ env.SECURITY_MODE }}" = "protect" ]; then
               echo "Malware detected in PROTECT mode! Failing..."
               exit 1
             else
@@ -223,10 +219,6 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: docker-image
-      
-      - name: Security mode notice
-        run: |
-          echo "Running in ${{ vars.SECURITY_MODE }} mode - $([ "${{ vars.SECURITY_MODE }}" = "protect" ] && echo "will fail on findings" || echo "logging findings only")"
       
       - name: Install Artifact Scan CLI
         run: ./tmas_install.sh
@@ -257,7 +249,7 @@ jobs:
             echo "|---------|-----------|" >> $GITHUB_STEP_SUMMARY
             jq -r '.secrets.findings.unmitigated[]? | "| \(.ruleID) | \(.location.path) |"' secrets-scan-results.json >> $GITHUB_STEP_SUMMARY
             
-            if [ "${{ vars.SECURITY_MODE }}" = "protect" ]; then
+            if [ "${{ env.SECURITY_MODE }}" = "protect" ]; then
               echo "Secrets detected in PROTECT mode! Failing..."
               exit 1
             else
@@ -310,15 +302,17 @@ jobs:
           path: SBOM_*.json
           retention-days: 90
 
-deploy-to-k8s:
+  deploy-to-k8s:
     needs: [vulnerabilities-scan, malware-scan, secrets-scan, sbom-scan]
-    if: |
-      always() && 
-      (vars.SECURITY_MODE != 'protect' || 
-      (needs.vulnerabilities-scan.result != 'failure' && 
-      needs.malware-scan.result != 'failure' && 
-      needs.secrets-scan.result != 'failure' && 
-      needs.sbom-scan.result != 'failure'))
+    if: >
+      always() && (
+        env.SECURITY_MODE != 'protect' || (
+          needs.vulnerabilities-scan.result != 'failure' && 
+          needs.malware-scan.result != 'failure' && 
+          needs.secrets-scan.result != 'failure' && 
+          needs.sbom-scan.result != 'failure'
+        )
+      )
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -363,52 +357,8 @@ deploy-to-k8s:
           echo "## 🔐 Security Configuration" >> $GITHUB_STEP_SUMMARY
           echo "| Setting | Value | Description |" >> $GITHUB_STEP_SUMMARY
           echo "|----------|---------|-------------|" >> $GITHUB_STEP_SUMMARY
-          if [ "${{ vars.SECURITY_MODE }}" = "protect" ]; then
+          if [ "${{ env.SECURITY_MODE }}" = "protect" ]; then
             echo "| Mode | 🛡️ PROTECT | Pipeline will fail if vulnerabilities, malware, or secrets are found |" >> $GITHUB_STEP_SUMMARY
           else
             echo "| Mode | 📝 LOG | Pipeline will continue regardless of scan findings |" >> $GITHUB_STEP_SUMMARY
-          fi
-
-      - name: Check for k8s manifests
-        run: |
-          if [ ! -f "k8s/deployment.yaml" ] || [ ! -f "k8s/service.yaml" ]; then
-            echo "Error: Required Kubernetes manifests not found in k8s/ directory"
-            echo "Please ensure both deployment.yaml and service.yaml exist in the k8s/ directory"
-            exit 1
-          fi
-
-      - name: Update deployment image
-        env:
-          ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
-          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY_NAME }}
-        run: |
-          echo "Updating deployment to use image: $ECR_REGISTRY/$ECR_REPOSITORY:latest"
-          sed -i "s|image: nginx:latest.*|image: $ECR_REGISTRY/$ECR_REPOSITORY:latest|" k8s/deployment.yaml
-          sed -i "s|name: nginx-deployment|name: bytevault-deployment|" k8s/deployment.yaml
-          sed -i "s|name: nginx-service|name: bytevault-service|" k8s/service.yaml
-          cat k8s/deployment.yaml
-          
-      - name: Deploy to k8s cluster
-        run: |
-          kubectl apply -f k8s/deployment.yaml
-          kubectl apply -f k8s/service.yaml
-          kubectl rollout status deployment/bytevault-deployment
-          
-          echo "### 📝 Deployment Note" >> $GITHUB_STEP_SUMMARY
-          echo "To view deployment status and details, use these commands:" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
-          echo "kubectl get deployments -o wide  # View deployments" >> $GITHUB_STEP_SUMMARY
-          echo "kubectl get pods -o wide         # View pods" >> $GITHUB_STEP_SUMMARY
-          echo "kubectl get services -o wide     # View services" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          
-          # Get LoadBalancer URL and details
-          LB_HOSTNAME=$(kubectl get service bytevault-service -o jsonpath="{.status.loadBalancer.ingress[0].hostname}")
-          if [ ! -z "$LB_HOSTNAME" ]; then
-            echo "### 🌐 Service Access" >> $GITHUB_STEP_SUMMARY
-            echo "| Information | Value |" >> $GITHUB_STEP_SUMMARY
-            echo "|------------|--------|" >> $GITHUB_STEP_SUMMARY
-            echo "| URL | http://${LB_HOSTNAME} |" >> $GITHUB_STEP_SUMMARY
-            echo "| Region | ${{ vars.AWS_REGION }} |" >> $GITHUB_STEP_SUMMARY
-            echo "| Port | 80 |" >> $GITHUB_STEP_SUMMARY
           fi
