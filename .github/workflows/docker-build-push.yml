@@ -165,9 +165,15 @@ jobs:
           
           if [ "$CODE" -gt 0 ]; then
             echo "### ❌ Malware Findings" >> $GITHUB_STEP_SUMMARY
-            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-            jq -r '.malware.findings[] | "- Type: " + .type + " | File: " + .file' scan-results/malware-scan-results.json >> $GITHUB_STEP_SUMMARY
-            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "| File | Size | Malware Name |" >> $GITHUB_STEP_SUMMARY
+            echo "|------|------|--------------|" >> $GITHUB_STEP_SUMMARY
+            jq -r '.malware.findings[] | "| \(.fileName) | \(.fileSize) bytes | \(.foundMalwares[0].malwareName) |"' scan-results/malware-scan-results.json >> $GITHUB_STEP_SUMMARY
+            
+            # Detailed findings for debugging
+            echo "### Detailed Scan Information" >> $GITHUB_STEP_SUMMARY
+            echo "- Scanner Version: \$(jq -r '.malware.scannerVersion' scan-results/malware-scan-results.json)" >> $GITHUB_STEP_SUMMARY
+            echo "- Scan ID: \$(jq -r '.malware.scanID' scan-results/malware-scan-results.json)" >> $GITHUB_STEP_SUMMARY
+            echo "- Layer Info: \$(jq -r '.malware.findings[0].layerDigest' scan-results/malware-scan-results.json)" >> $GITHUB_STEP_SUMMARY
             echo "Malware detected! Failing..."
             exit 1
           else
