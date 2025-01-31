@@ -180,6 +180,7 @@ jobs:
             echo "- Scanner Version: $SCANNER_VERSION" >> $GITHUB_STEP_SUMMARY
             echo "- Scan ID: $SCAN_ID" >> $GITHUB_STEP_SUMMARY
             echo "- Layer Info: $LAYER_DIGEST" >> $GITHUB_STEP_SUMMARY
+            
             echo "Malware detected! Failing..."
             exit 1
           else
@@ -318,7 +319,6 @@ jobs:
       - name: Extract cluster name and update kube config
         run: |
           FULL_CLUSTER_NAME="${{ vars.EKS_CLUSTER_NAME }}"
-          # Extract just the cluster name part (gha***) from franz@gha***.***.eksctl.io
           CLUSTER_NAME=$(echo $FULL_CLUSTER_NAME | cut -d'@' -f2 | cut -d'.' -f1)
           echo "Using cluster name: $CLUSTER_NAME"
           aws eks update-kubeconfig --name $CLUSTER_NAME --region ${{ secrets.AWS_REGION }}
@@ -333,30 +333,15 @@ jobs:
         run: |
           ECR_REGISTRY=$(aws ecr describe-registry --query registryId --output text)
           echo "registry=${ECR_REGISTRY}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com" >> $GITHUB_OUTPUT
-      
-      - name: Prepare Kubernetes manifests
+
+      - name: Check for k8s manifests
         run: |
-          # Create k8s directory if it doesn't exist
-          mkdir -p k8s
-          
-          # Create deployment.yaml if it doesn't exist
-          cat << EOF > k8s/deployment.yaml
-          apiVersion: apps/v1
-          kind: Deployment
-          metadata:
-            name: nginx-deployment
-            labels:
-              app: nginx
-          spec:
-            replicas: 1
-            selector:
-              app: nginx
-            ports:
-            - port: 80
-              targetPort: 80
-            type: LoadBalancer
-          EOF
-      
+          if [ ! -f "k8s/deployment.yaml" ] || [ ! -f "k8s/service.yaml" ]; then
+            echo "Error: Required Kubernetes manifests not found in k8s/ directory"
+            echo "Please ensure both deployment.yaml and service.yaml exist in the k8s/ directory"
+            exit 1
+          fi
+
       - name: Update deployment image
         env:
           ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
@@ -373,26 +358,4 @@ jobs:
           kubectl rollout status deployment/nginx-deployment
           kubectl get deployments
           kubectl get pods
-          kubectl get services:
-              matchLabels:
-                app: nginx
-            template:
-              metadata:
-                labels:
-                  app: nginx
-              spec:
-                containers:
-                - name: nginx
-                  image: nginx:latest
-                  ports:
-                  - containerPort: 80
-          EOF
-          
-          # Create service.yaml if it doesn't exist
-          cat << EOF > k8s/service.yaml
-          apiVersion: v1
-          kind: Service
-          metadata:
-            name: nginx-service
-          spec:
-            selector
+          kubectl get services
