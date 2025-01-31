@@ -1,0 +1,30 @@
+<html>
+<head>
+    <title>ByteVault - Dashboard</title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="logo">ByteVault</div>
+        <a href="/logout" class="logout-btn">Logout</a>
+    </nav>
+
+    <div class="container">
+        <div class="upload-section">
+            <h2>Upload Files</h2>
+            <form id="uploadForm" class="upload-form">
+                <input type="file" id="fileInput" required>
+                <button type="submit">Upload</button>
+            </form>
+        </div>
+
+        <div class="files-section">
+            <h2>Your Files</h2>
+            <div id="fileList" class="file-list"></div>
+        </div>
+    </div>
+
+    <script src="/script.js"></script>
+</body>
+</html>
+

@@ -1,22 +1,27 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: nginx-deployment
+  name: bytevault-deployment
   labels:
-    app: nginx
+    app: bytevault
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: nginx
+      app: bytevault
   template:
     metadata:
       labels:
-        app: nginx
+        app: bytevault
     spec:
       containers:
-      - name: nginx
-        image: nginx:latest
+      - name: bytevault
+        image: nginx:latest  # This will be replaced by ECR image
         ports:
-        - containerPort: 80
-
+        - containerPort: 3000
+        volumeMounts:
+        - name: uploads-volume
+          mountPath: /app/uploads
+      volumes:
+      - name: uploads-volume
+        emptyDir: {}

@@ -348,7 +348,9 @@ jobs:
           ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY_NAME }}
         run: |
           echo "Updating deployment to use image: $ECR_REGISTRY/$ECR_REPOSITORY:latest"
-          sed -i "s|image:.*|image: $ECR_REGISTRY/$ECR_REPOSITORY:latest|" k8s/deployment.yaml
+          sed -i "s|image: nginx:latest.*|image: $ECR_REGISTRY/$ECR_REPOSITORY:latest|" k8s/deployment.yaml
+          sed -i "s|name: nginx-deployment|name: bytevault-deployment|" k8s/deployment.yaml
+          sed -i "s|name: nginx-service|name: bytevault-service|" k8s/service.yaml
           cat k8s/deployment.yaml
           
       - name: Deploy to k8s cluster
