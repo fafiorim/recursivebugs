@@ -287,7 +287,7 @@ jobs:
           path: SBOM_*.json
           retention-days: 90
 
-  deploy-to-eks:
+  deploy-to-k8s:
     needs: [vulnerabilities-scan, malware-scan, secrets-scan, sbom-scan]
     if: |
       always() &&
@@ -351,7 +351,7 @@ jobs:
           sed -i "s|image:.*|image: $ECR_REGISTRY/$ECR_REPOSITORY:latest|" k8s/deployment.yaml
           cat k8s/deployment.yaml
           
-      - name: Deploy to EKS
+      - name: Deploy to k8s cluster
         run: |
           kubectl apply -f k8s/deployment.yaml
           kubectl apply -f k8s/service.yaml
