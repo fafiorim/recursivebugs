@@ -306,7 +306,7 @@ jobs:
     needs: [vulnerabilities-scan, malware-scan, secrets-scan, sbom-scan]
     if: >
       always() && (
-        env.SECURITY_MODE != 'protect' || (
+        ${{ vars.SECURITY_MODE != 'protect' }} || (
           needs.vulnerabilities-scan.result != 'failure' && 
           needs.malware-scan.result != 'failure' && 
           needs.secrets-scan.result != 'failure' && 
