@@ -2,10 +2,13 @@ apiVersion: v1
 kind: Service
 metadata:
   name: bytevault-service
+  labels:
+    app: bytevault
 spec:
   selector:
     app: bytevault
   ports:
-  - port: 80
-    targetPort: 3000
+    - protocol: TCP
+      port: 3000        # Changed from 80 to 3000 to match the container port
+      targetPort: 3000  # Should match the containerPort in deployment
   type: LoadBalancer
