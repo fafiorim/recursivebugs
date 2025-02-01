@@ -11,7 +11,7 @@ WORKDIR /app
 # Install Node.js and npm
 RUN apk add --update nodejs npm
 
-# Create directories
+# Create necessary directories
 RUN mkdir -p /app/public /app/uploads && \
     chmod 777 /app/uploads
 
@@ -21,10 +21,7 @@ RUN npm install
 
 # Copy application files
 COPY server.js .
-COPY login.html public/
-COPY dashboard.html public/
-COPY styles.css public/
-COPY script.js public/
+COPY public/ public/
 
 # Environment variables will be provided through k8s deployment
 ENV ADMIN_USERNAME=
