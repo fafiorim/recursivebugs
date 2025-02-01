@@ -16,9 +16,30 @@ spec:
     spec:
       containers:
       - name: bytevault
-        image: nginx:latest  # This will be replaced by ECR image
+        image: YOUR_ECR_IMAGE
         ports:
         - containerPort: 3000
+        env:
+        - name: ADMIN_USERNAME
+          valueFrom:
+            configMapKeyRef:
+              name: bytevault-config
+              key: admin-username
+        - name: ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: bytevault-secrets
+              key: admin-password
+        - name: USER_USERNAME
+          valueFrom:
+            configMapKeyRef:
+              name: bytevault-config
+              key: user-username
+        - name: USER_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: bytevault-secrets
+              key: user-password
         volumeMounts:
         - name: uploads-volume
           mountPath: /app/uploads

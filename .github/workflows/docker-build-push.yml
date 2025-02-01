@@ -16,16 +16,16 @@ jobs:
       - uses: actions/checkout@v4
       
       - name: Build Docker image
-        run: docker build -t fafiorim/firefly .
+        run: docker build -t fafiorim/bytevault .
       
       - name: Save Docker image
-        run: docker save fafiorim/firefly:latest -o firefly.tar
+        run: docker save fafiorim/bytevault:latest -o bytevault.tar
       
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: docker-image
-          path: firefly.tar
+          path: bytevault.tar
           retention-days: 90
 
   push-to-ecr:
@@ -65,8 +65,8 @@ jobs:
           ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY_NAME }}
           IMAGE_TAG: latest
         run: |
-          docker load -i firefly.tar
-          docker tag fafiorim/firefly:latest $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker load -i bytevault.tar
+          docker tag fafiorim/bytevault:latest $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           echo "IMAGE=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_ENV
 
@@ -91,7 +91,7 @@ jobs:
           echo "Running in ${{ env.SECURITY_MODE }} mode - $([ "${{ env.SECURITY_MODE }}" = "protect" ] && echo "will fail on findings" || echo "logging findings only")"
 
       - name: Scan for Vulnerabilities
-        run: tmas scan docker-archive:firefly.tar -V > vulnerability-scan-results.json
+        run: tmas scan docker-archive:bytevault.tar -V > vulnerability-scan-results.json
       
       - name: Analyze vulnerabilities and create summary
         run: |
@@ -157,7 +157,7 @@ jobs:
       
       - name: Scan for Malware
         run: |
-          tmas scan docker-archive:firefly.tar -M > scan-results/malware-scan-results.json
+          tmas scan docker-archive:bytevault.tar -M > scan-results/malware-scan-results.json
           cp scan-results/malware-scan-results.json .
       
       - name: Analyze malware scan and create summary
@@ -227,7 +227,7 @@ jobs:
         run: echo "TMAS_API_KEY=${{ secrets.TMAS_API_KEY }}" >> $GITHUB_ENV
       
       - name: Scan for Secrets
-        run: tmas scan docker-archive:firefly.tar -S > secrets-scan-results.json
+        run: tmas scan docker-archive:bytevault.tar -S > secrets-scan-results.json
       
       - name: Analyze secrets and create summary
         run: |
@@ -284,7 +284,7 @@ jobs:
         run: echo "TMAS_API_KEY=${{ secrets.TMAS_API_KEY }}" >> $GITHUB_ENV
       
       - name: Generate SBOM
-        run: tmas scan docker-archive:firefly.tar -V --saveSBOM > sbom-scan-results.json
+        run: tmas scan docker-archive:bytevault.tar -V --saveSBOM > sbom-scan-results.json
       
       - name: Upload SBOM logs
         if: always()
@@ -302,7 +302,7 @@ jobs:
           path: SBOM_*.json
           retention-days: 90
 
-  deploy-to-k8s:
+deploy-to-k8s:
     needs: [vulnerabilities-scan, malware-scan, secrets-scan, sbom-scan]
     if: >
       always() && (
@@ -352,14 +352,83 @@ jobs:
           ECR_REGISTRY=$(aws ecr describe-registry --query registryId --output text)
           echo "registry=${ECR_REGISTRY}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com" >> $GITHUB_OUTPUT
 
-      - name: Update Kubernetes Deployment Image
+      - name: Create Kubernetes ConfigMap and Secrets
         run: |
-          # Diagnostic output
-          echo "ECR Registry: ${{ steps.ecr.outputs.registry }}"
-          echo "ECR Repository: ${{ secrets.ECR_REPOSITORY_NAME }}"
+          # Create ConfigMap
+          cat <<EOF | kubectl apply -f -
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: bytevault-config
+          data:
+            admin-username: "${{ vars.ADMIN_USERNAME }}"
+            user-username: "${{ vars.USER_USERNAME }}"
+          EOF
           
-          # Replace the image in the deployment with the ECR image
-          sed -i "s|image: nginx:latest|image: ${{ steps.ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY_NAME }}:latest|g" k8s/deployment.yaml
+          # Create Secrets
+          cat <<EOF | kubectl apply -f -
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: bytevault-secrets
+          type: Opaque
+          data:
+            admin-password: $(echo -n "${{ secrets.ADMIN_PASSWORD }}" | base64)
+            user-password: $(echo -n "${{ secrets.USER_PASSWORD }}" | base64)
+          EOF
+
+      - name: Update deployment configuration
+        run: |
+          cat <<EOF > k8s/deployment.yaml
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: bytevault-deployment
+            labels:
+              app: bytevault
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: bytevault
+            template:
+              metadata:
+                labels:
+                  app: bytevault
+              spec:
+                containers:
+                - name: bytevault
+                  image: ${{ steps.ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY_NAME }}:latest
+                  ports:
+                  - containerPort: 3000
+                  env:
+                  - name: ADMIN_USERNAME
+                    valueFrom:
+                      configMapKeyRef:
+                        name: bytevault-config
+                        key: admin-username
+                  - name: USER_USERNAME
+                    valueFrom:
+                      configMapKeyRef:
+                        name: bytevault-config
+                        key: user-username
+                  - name: ADMIN_PASSWORD
+                    valueFrom:
+                      secretKeyRef:
+                        name: bytevault-secrets
+                        key: admin-password
+                  - name: USER_PASSWORD
+                    valueFrom:
+                      secretKeyRef:
+                        name: bytevault-secrets
+                        key: user-password
+                  volumeMounts:
+                  - name: uploads-volume
+                    mountPath: /app/uploads
+                volumes:
+                - name: uploads-volume
+                  emptyDir: {}
+          EOF
 
       - name: Deploy to Kubernetes
         run: |
@@ -368,9 +437,22 @@ jobs:
 
       - name: Verify Deployment
         run: |
+          echo "Checking deployments..."
           kubectl get deployments
+          
+          echo "Checking services..."
           kubectl get services
+          
+          echo "Checking pods..."
           kubectl get pods
+          
+          # Wait for deployment rollout
+          kubectl rollout status deployment/bytevault-deployment --timeout=300s
+          
+          # Get pod name and check logs
+          POD_NAME=$(kubectl get pods -l app=bytevault -o jsonpath="{.items[0].metadata.name}")
+          echo "Checking pod logs..."
+          kubectl logs $POD_NAME
 
       - name: Security mode summary
         run: |

@@ -8,6 +8,12 @@ const bcrypt = require('bcrypt');
 const app = express();
 const port = 3000;
 
+// Get environment variables
+const adminUsername = process.env.ADMIN_USERNAME;
+const adminPassword = process.env.ADMIN_PASSWORD;
+const userUsername = process.env.USER_USERNAME;
+const userPassword = process.env.USER_PASSWORD;
+
 // Configure multer for file uploads
 const storage = multer.diskStorage({
   destination: './uploads',
@@ -49,13 +55,13 @@ app.get('/login', (req, res) => {
 app.post('/login', async (req, res) => {
   const { username, password } = req.body;
   
-  // Get plain passwords from secrets
+  // Get passwords from environment variables
   const userPasswords = {
-    [${{ vars.ADMIN_USERNAME }}]: ${{ secrets.ADMIN_PASSWORD }},
-    [${{ vars.USER_USERNAME }}]: ${{ secrets.USER_PASSWORD }}
+    [adminUsername]: adminPassword,
+    [userUsername]: userPassword
   };
 
-  // Hash the provided password and compare
+  // Check if user exists and verify password
   const userPassword = userPasswords[username];
   if (!userPassword) {
     return res.redirect('/login?error=1');
@@ -65,7 +71,7 @@ app.post('/login', async (req, res) => {
   if (await bcrypt.compare(password, hashedPassword)) {
     req.session.user = { 
       username,
-      role: username === ${{ vars.ADMIN_USERNAME }} ? 'admin' : 'user'
+      role: username === adminUsername ? 'admin' : 'user'
     };
     res.redirect('/dashboard');
   } else {
