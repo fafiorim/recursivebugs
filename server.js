@@ -30,7 +30,11 @@ app.use(express.urlencoded({ extended: true }));
 app.use(session({
   secret: 'bytevault-secret-key',
   resave: false,
-  saveUninitialized: false
+  saveUninitialized: false,
+  cookie: {
+    secure: false, // set to true if using HTTPS
+    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+  }
 }));
 
 // Authentication middleware
@@ -44,7 +48,16 @@ const requireAuth = (req, res, next) => {
 // Serve static files
 app.use(express.static('public'));
 
-// Routes
+// Root route - redirect to login or dashboard
+app.get('/', (req, res) => {
+  if (req.session.user) {
+    res.redirect('/dashboard');
+  } else {
+    res.redirect('/login');
+  }
+});
+
+// Login routes
 app.get('/login', (req, res) => {
   if (req.session.user) {
     return res.redirect('/dashboard');
@@ -53,29 +66,37 @@ app.get('/login', (req, res) => {
 });
 
 app.post('/login', async (req, res) => {
-  const { username, password } = req.body;
-  
-  // Get passwords from environment variables
-  const userPasswords = {
-    [adminUsername]: adminPassword,
-    [userUsername]: userPassword
-  };
-
-  // Check if user exists and verify password
-  const userPassword = userPasswords[username];
-  if (!userPassword) {
-    return res.redirect('/login?error=1');
-  }
-
-  const hashedPassword = await bcrypt.hash(userPassword, 10);
-  if (await bcrypt.compare(password, hashedPassword)) {
-    req.session.user = { 
-      username,
-      role: username === adminUsername ? 'admin' : 'user'
+  try {
+    const { username, password } = req.body;
+    
+    // Get passwords from environment variables
+    const userPasswords = {
+      [adminUsername]: adminPassword,
+      [userUsername]: userPassword
     };
-    res.redirect('/dashboard');
-  } else {
-    res.redirect('/login?error=1');
+
+    // Check if user exists
+    const storedPassword = userPasswords[username];
+    if (!storedPassword) {
+      console.log('User not found:', username);
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    // Compare passwords directly since we're getting plain text from env vars
+    if (password === storedPassword) {
+      req.session.user = { 
+        username,
+        role: username === adminUsername ? 'admin' : 'user'
+      };
+      console.log('Login successful for:', username);
+      return res.json({ success: true, redirect: '/dashboard' });
+    } else {
+      console.log('Invalid password for:', username);
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
