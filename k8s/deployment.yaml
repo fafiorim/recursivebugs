@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: bytevault
-        image: ${{ steps.ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY_NAME }}:latest
+        image: ${ECR_REGISTRY}/${ECR_REPOSITORY}:latest
         ports:
         - containerPort: 3000
         env:
@@ -40,18 +40,6 @@ spec:
             secretKeyRef:
               name: bytevault-secrets
               key: user-password
-        readinessProbe:     # Added health checks
-          httpGet:
-            path: /login    # The application serves a login page
-            port: 3000
-          initialDelaySeconds: 5
-          periodSeconds: 5
-        livenessProbe:      # Added health checks
-          httpGet:
-            path: /login    # The application serves a login page
-            port: 3000
-          initialDelaySeconds: 15
-          periodSeconds: 20
         volumeMounts:
         - name: uploads-volume
           mountPath: /app/uploads

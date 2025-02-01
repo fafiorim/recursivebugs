@@ -9,6 +9,6 @@ spec:
     app: bytevault
   ports:
     - protocol: TCP
-      port: 3000        # Changed from 80 to 3000 to match the container port
-      targetPort: 3000  # Should match the containerPort in deployment
+      port: 3000
+      targetPort: 3000
   type: LoadBalancer
