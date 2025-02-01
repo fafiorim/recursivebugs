@@ -7,17 +7,11 @@ const fs = require('fs');
 const app = express();
 const port = 3000;
 
-// Get environment variables with logging
+// Get environment variables
 const adminUsername = process.env.ADMIN_USERNAME;
 const adminPassword = process.env.ADMIN_PASSWORD;
 const userUsername = process.env.USER_USERNAME;
 const userPassword = process.env.USER_PASSWORD;
-
-console.log('Environment variables check:');
-console.log('ADMIN_USERNAME configured:', !!adminUsername);
-console.log('ADMIN_PASSWORD configured:', !!adminPassword);
-console.log('USER_USERNAME configured:', !!userUsername);
-console.log('USER_PASSWORD configured:', !!userPassword);
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -29,108 +23,62 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage: storage });
 
-// Session configuration
+// Basic Auth middleware for API endpoints
+const basicAuth = (req, res, next) => {
+  console.log('Checking Basic Auth...');
+  
+  // Get auth header
+  const authHeader = req.headers.authorization;
+  console.log('Auth header present:', !!authHeader);
+
+  if (authHeader) {
+    // Parse Basic Auth header
+    const base64Credentials = authHeader.split(' ')[1];
+    const credentials = Buffer.from(base64Credentials, 'base64').toString('ascii');
+    const [username, password] = credentials.split(':');
+
+    console.log('Auth attempt for username:', username);
+
+    // Check credentials
+    if ((username === adminUsername && password === adminPassword) ||
+        (username === userUsername && password === userPassword)) {
+      console.log('Basic Auth successful');
+      req.user = {
+        username,
+        role: username === adminUsername ? 'admin' : 'user'
+      };
+      return next();
+    }
+  }
+
+  // Authentication failed
+  console.log('Basic Auth failed');
+  res.setHeader('WWW-Authenticate', 'Basic realm="ByteVault API"');
+  res.status(401).json({ error: 'Authentication required' });
+};
+
+// Session middleware
 app.use(session({
   secret: 'bytevault-secret-key',
   resave: false,
   saveUninitialized: false,
-  cookie: {
+  cookie: { 
     secure: false,
-    maxAge: 24 * 60 * 60 * 1000
+    maxAge: 24 * 60 * 60 * 1000 
   }
 }));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Request logging middleware
-app.use((req, res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
-  console.log('Headers:', req.headers);
-  next();
-});
-
-// Authentication check function with detailed logging
-const checkBasicAuth = (req) => {
-  console.log('Checking Basic Auth...');
-  const authHeader = req.headers.authorization;
-  console.log('Auth header:', authHeader ? 'Present' : 'Missing');
-  
-  if (authHeader) {
-    try {
-      const auth = Buffer.from(authHeader.split(' ')[1], 'base64').toString().split(':');
-      const username = auth[0];
-      const password = auth[1];
-      
-      console.log('Auth attempt for username:', username);
-
-      const userPasswords = {
-        [adminUsername]: adminPassword,
-        [userUsername]: userPassword
-      };
-
-      if (userPasswords[username] && userPasswords[username] === password) {
-        console.log('Basic Auth successful for:', username);
-        return { username, role: username === adminUsername ? 'admin' : 'user' };
-      } else {
-        console.log('Invalid credentials for:', username);
-      }
-    } catch (error) {
-      console.error('Basic Auth parsing error:', error);
-    }
-  }
-  return null;
-};
-
-// Authentication middleware with detailed logging
-const requireAuth = (req, res, next) => {
-  console.log('\nProcessing authentication...');
-  console.log('Request path:', req.path);
-  console.log('Session:', req.session);
-  
-  // Check Basic Auth for API calls
-  const basicAuthUser = checkBasicAuth(req);
-  if (basicAuthUser) {
-    console.log('Basic Auth successful, proceeding...');
-    req.user = basicAuthUser;
-    return next();
-  }
-  console.log('Basic Auth failed');
-
-  // Check session auth
-  if (req.session.user) {
-    console.log('Session auth successful, proceeding...');
-    req.user = req.session.user;
-    return next();
-  }
-  console.log('Session auth failed');
-
-  // Handle API endpoints
-  if (req.path.startsWith('/upload') || req.path.startsWith('/files')) {
-    console.log('API endpoint - returning 401');
-    res.setHeader('WWW-Authenticate', 'Basic realm="ByteVault API"');
-    return res.status(401).json({ error: 'Authentication required' });
-  }
-
-  console.log('Web interface - redirecting to login');
-  res.redirect('/login');
-};
-
-// API endpoints
-app.post('/upload', requireAuth, upload.single('file'), (req, res) => {
-  console.log('Processing upload request...');
+// API endpoints with Basic Auth
+app.post('/upload', basicAuth, upload.single('file'), (req, res) => {
   try {
+    console.log('Processing file upload...');
     if (!req.file) {
-      console.log('No file in request');
       return res.status(400).json({ error: 'No file uploaded' });
     }
-    
-    console.log('File upload successful:', {
-      filename: req.file.filename,
-      size: req.file.size,
-      mimetype: req.file.mimetype
-    });
-    
+    console.log('File uploaded successfully:', req.file.filename);
     res.json({ 
       message: 'File uploaded successfully',
       filename: req.file.filename,
@@ -143,12 +91,12 @@ app.post('/upload', requireAuth, upload.single('file'), (req, res) => {
   }
 });
 
-app.get('/files', requireAuth, (req, res) => {
-  console.log('Processing files list request...');
+app.get('/files', basicAuth, (req, res) => {
   try {
+    console.log('Listing files...');
     fs.readdir('./uploads', (err, files) => {
       if (err) {
-        console.error('File listing error:', err);
+        console.error('Error reading files:', err);
         return res.status(500).json({ error: 'Error reading files' });
       }
       const fileList = files.map(filename => {
@@ -161,7 +109,7 @@ app.get('/files', requireAuth, (req, res) => {
           modified: stats.mtime
         };
       });
-      console.log('Files list:', fileList);
+      console.log('Files found:', fileList.length);
       res.json(fileList);
     });
   } catch (error) {
@@ -170,14 +118,15 @@ app.get('/files', requireAuth, (req, res) => {
   }
 });
 
-app.delete('/files/:filename', requireAuth, (req, res) => {
-  console.log('Processing delete request for:', req.params.filename);
+app.delete('/files/:filename', basicAuth, (req, res) => {
   try {
     const filepath = path.join('./uploads', req.params.filename);
+    console.log('Attempting to delete:', filepath);
+    
     if (!fs.existsSync(filepath)) {
-      console.log('File not found:', filepath);
       return res.status(404).json({ error: 'File not found' });
     }
+    
     fs.unlink(filepath, (err) => {
       if (err) {
         console.error('File deletion error:', err);
@@ -192,49 +141,26 @@ app.delete('/files/:filename', requireAuth, (req, res) => {
   }
 });
 
-// Web interface routes
-app.get('/', (req, res) => {
-  if (req.session.user) {
-    res.redirect('/dashboard');
-  } else {
-    res.redirect('/login');
-  }
-});
+// Web interface routes with session auth
+app.use(express.static('public'));
 
 app.get('/login', (req, res) => {
-  if (req.session.user) {
-    return res.redirect('/dashboard');
-  }
   res.sendFile(path.join(__dirname, 'public', 'login.html'));
 });
 
-app.post('/login', async (req, res) => {
-  try {
-    const { username, password } = req.body;
-    
-    const userPasswords = {
-      [adminUsername]: adminPassword,
-      [userUsername]: userPassword
-    };
-
-    const storedPassword = userPasswords[username];
-    if (!storedPassword || password !== storedPassword) {
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
-
+app.post('/login', (req, res) => {
+  const { username, password } = req.body;
+  
+  if ((username === adminUsername && password === adminPassword) ||
+      (username === userUsername && password === userPassword)) {
     req.session.user = { 
       username,
       role: username === adminUsername ? 'admin' : 'user'
     };
-    return res.json({ success: true, redirect: '/dashboard' });
-  } catch (error) {
-    console.error('Login error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.json({ success: true, redirect: '/dashboard' });
+  } else {
+    res.status(401).json({ error: 'Invalid credentials' });
   }
-});
-
-app.get('/dashboard', requireAuth, (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'dashboard.html'));
 });
 
 app.get('/logout', (req, res) => {
@@ -242,6 +168,15 @@ app.get('/logout', (req, res) => {
   res.redirect('/login');
 });
 
+app.get('/dashboard', (req, res) => {
+  if (!req.session.user) {
+    return res.redirect('/login');
+  }
+  res.sendFile(path.join(__dirname, 'public', 'dashboard.html'));
+});
+
 app.listen(port, '0.0.0.0', () => {
   console.log(`ByteVault running on port ${port}`);
+  console.log('Admin username configured:', !!adminUsername);
+  console.log('User username configured:', !!userUsername);
 });
