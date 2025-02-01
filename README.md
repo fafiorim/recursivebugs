@@ -162,3 +162,286 @@ SECURITY_MODE=log
 ## License
 
 GNU General Public License v3.0 (GPLv3)
+
+## RESTful API Reference
+
+ByteVault provides a RESTful API for file operations with both session-based (web interface) and Basic Authentication (API calls) support.
+
+## Authentication Methods
+
+### Session-based Authentication (Web Interface)
+```http
+POST /login
+Content-Type: application/json
+
+{
+    "username": "string",
+    "password": "string"
+}
+```
+
+Response:
+```json
+{
+    "success": true,
+    "redirect": "/dashboard"
+}
+```
+
+### Basic Authentication (API)
+All API endpoints support HTTP Basic Authentication. Include credentials in the request header:
+```
+Authorization: Basic <base64(username:password)>
+```
+
+## API Endpoints
+
+### Upload File
+Upload a file to the storage system.
+
+```http
+POST /upload
+Authorization: Basic <base64(username:password)>
+Content-Type: multipart/form-data
+
+file: <file_data>
+```
+
+Response:
+```json
+{
+    "message": "File uploaded successfully",
+    "filename": "1707052854321-example.txt",
+    "size": 1234,
+    "mimetype": "text/plain"
+}
+```
+
+### List Files
+Retrieve a list of all uploaded files.
+
+```http
+GET /files
+Authorization: Basic <base64(username:password)>
+```
+
+Response:
+```json
+[
+    {
+        "name": "1707052854321-example.txt",
+        "path": "/uploads/1707052854321-example.txt",
+        "size": 1234,
+        "created": "2024-02-01T10:00:00.000Z",
+        "modified": "2024-02-01T10:00:00.000Z"
+    }
+]
+```
+
+### Delete File
+Delete a specific file by its filename.
+
+```http
+DELETE /files/:filename
+Authorization: Basic <base64(username:password)>
+```
+
+Response:
+```json
+{
+    "message": "File deleted successfully"
+}
+```
+
+## Usage Examples
+
+### cURL Examples
+
+```bash
+# Upload a file
+curl -X POST http://<EXTERNAL-IP>:3000/upload \
+  -u "admin:your_password" \
+  -F "file=@/path/to/your/file.txt"
+
+# List all files
+curl http://<EXTERNAL-IP>:3000/files \
+  -u "admin:your_password"
+
+# Delete a file
+curl -X DELETE http://<EXTERNAL-IP>:3000/files/1707052854321-example.txt \
+  -u "admin:your_password"
+```
+
+### Python Examples
+
+#### Using requests Library
+```python
+import requests
+from requests.auth import HTTPBasicAuth
+
+class ByteVaultAPI:
+    def __init__(self, base_url, username, password):
+        self.base_url = base_url
+        self.auth = HTTPBasicAuth(username, password)
+
+    def upload_file(self, filepath):
+        """Upload a file to ByteVault."""
+        try:
+            with open(filepath, 'rb') as f:
+                files = {'file': f}
+                response = requests.post(
+                    f"{self.base_url}/upload",
+                    auth=self.auth,
+                    files=files
+                )
+                response.raise_for_status()
+                return response.json()
+        except requests.exceptions.RequestException as e:
+            print(f"Upload failed: {e}")
+            return None
+
+    def list_files(self):
+        """List all files in ByteVault."""
+        try:
+            response = requests.get(
+                f"{self.base_url}/files",
+                auth=self.auth
+            )
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            print(f"Failed to list files: {e}")
+            return None
+
+    def delete_file(self, filename):
+        """Delete a file from ByteVault."""
+        try:
+            response = requests.delete(
+                f"{self.base_url}/files/{filename}",
+                auth=self.auth
+            )
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            print(f"Failed to delete file: {e}")
+            return None
+
+# Usage example
+if __name__ == "__main__":
+    # Initialize API client
+    api = ByteVaultAPI(
+        base_url="http://<EXTERNAL-IP>:3000",
+        username="admin",
+        password="your_password"
+    )
+
+    # Upload a file
+    upload_result = api.upload_file("example.txt")
+    if upload_result:
+        print(f"File uploaded: {upload_result}")
+
+    # List all files
+    files = api.list_files()
+    if files:
+        print("\nAvailable files:")
+        for file in files:
+            print(f"- {file['name']} ({file['size']} bytes)")
+
+    # Delete first file in the list
+    if files:
+        delete_result = api.delete_file(files[0]['name'])
+        if delete_result:
+            print(f"\nFile deleted: {files[0]['name']}")
+```
+
+#### Using httpx Library (Async Example)
+```python
+import httpx
+import asyncio
+from pathlib import Path
+
+class AsyncByteVaultAPI:
+    def __init__(self, base_url, username, password):
+        self.base_url = base_url
+        self.auth = (username, password)
+
+    async def upload_file(self, filepath):
+        """Upload a file asynchronously."""
+        async with httpx.AsyncClient(auth=self.auth) as client:
+            files = {'file': open(filepath, 'rb')}
+            response = await client.post(
+                f"{self.base_url}/upload",
+                files=files
+            )
+            return response.json()
+
+    async def list_files(self):
+        """List files asynchronously."""
+        async with httpx.AsyncClient(auth=self.auth) as client:
+            response = await client.get(f"{self.base_url}/files")
+            return response.json()
+
+    async def delete_file(self, filename):
+        """Delete a file asynchronously."""
+        async with httpx.AsyncClient(auth=self.auth) as client:
+            response = await client.delete(
+                f"{self.base_url}/files/{filename}"
+            )
+            return response.json()
+
+async def main():
+    api = AsyncByteVaultAPI(
+        base_url="http://<EXTERNAL-IP>:3000",
+        username="admin",
+        password="your_password"
+    )
+
+    # Upload multiple files concurrently
+    files_to_upload = ["file1.txt", "file2.txt", "file3.txt"]
+    upload_tasks = [api.upload_file(f) for f in files_to_upload]
+    upload_results = await asyncio.gather(*upload_tasks)
+    print("Upload results:", upload_results)
+
+    # List files
+    files = await api.list_files()
+    print("Available files:", files)
+
+    # Delete files concurrently
+    if files:
+        delete_tasks = [api.delete_file(f['name']) for f in files]
+        delete_results = await asyncio.gather(*delete_tasks)
+        print("Delete results:", delete_results)
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+## Error Handling
+
+The API uses standard HTTP status codes and returns error messages in JSON format:
+
+```json
+// Authentication Error (401)
+{
+    "error": "Authentication required"
+}
+
+// Bad Request (400)
+{
+    "error": "No file uploaded"
+}
+
+// Not Found (404)
+{
+    "error": "File not found"
+}
+
+// Server Error (500)
+{
+    "error": "Internal server error"
+}
+```
+
+## Rate Limiting
+
+Currently, there are no rate limits implemented. However, file size limits are enforced by the server configuration.
