@@ -37,45 +37,104 @@ app.use(session({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Authentication middleware that checks both session and basic auth
+// Function to check Basic Auth credentials
+const checkBasicAuth = (req) => {
+  const authHeader = req.headers.authorization;
+  if (authHeader) {
+    try {
+      const auth = Buffer.from(authHeader.split(' ')[1], 'base64').toString().split(':');
+      const username = auth[0];
+      const password = auth[1];
+
+      const userPasswords = {
+        [adminUsername]: adminPassword,
+        [userUsername]: userPassword
+      };
+
+      if (userPasswords[username] && userPasswords[username] === password) {
+        return { username, role: username === adminUsername ? 'admin' : 'user' };
+      }
+    } catch (error) {
+      console.error('Auth header parsing error:', error);
+    }
+  }
+  return null;
+};
+
+// Authentication middleware
 const requireAuth = (req, res, next) => {
-  // Check if user is authenticated via session
-  if (req.session.user) {
+  // First check Basic Auth for API calls
+  const basicAuthUser = checkBasicAuth(req);
+  if (basicAuthUser) {
+    req.user = basicAuthUser;
     return next();
   }
 
-  // Check for basic auth header
-  const authHeader = req.headers.authorization;
-  if (authHeader) {
-    const auth = Buffer.from(authHeader.split(' ')[1], 'base64').toString().split(':');
-    const username = auth[0];
-    const password = auth[1];
-
-    const userPasswords = {
-      [adminUsername]: adminPassword,
-      [userUsername]: userPassword
-    };
-
-    if (userPasswords[username] && userPasswords[username] === password) {
-      req.user = { 
-        username,
-        role: username === adminUsername ? 'admin' : 'user'
-      };
-      return next();
-    }
+  // Then check session auth for web interface
+  if (req.session.user) {
+    req.user = req.session.user;
+    return next();
   }
 
-  // If no valid authentication, return 401
-  res.setHeader('WWW-Authenticate', 'Basic realm="ByteVault API"');
-  res.status(401).json({ error: 'Authentication required' });
+  // For API endpoints, return 401
+  if (req.path.startsWith('/upload') || req.path.startsWith('/files')) {
+    res.setHeader('WWW-Authenticate', 'Basic realm="ByteVault API"');
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+
+  // For web interface, redirect to login
+  res.redirect('/login');
 };
 
 // Serve static files
 app.use(express.static('public'));
 
-[... existing routes remain the same ...]
+// Web interface routes
+app.get('/', (req, res) => {
+  if (req.session.user) {
+    res.redirect('/dashboard');
+  } else {
+    res.redirect('/login');
+  }
+});
 
-// Updated API endpoints with better error handling
+app.get('/login', (req, res) => {
+  if (req.session.user) {
+    return res.redirect('/dashboard');
+  }
+  res.sendFile(path.join(__dirname, 'public', 'login.html'));
+});
+
+app.post('/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    
+    const userPasswords = {
+      [adminUsername]: adminPassword,
+      [userUsername]: userPassword
+    };
+
+    const storedPassword = userPasswords[username];
+    if (!storedPassword || password !== storedPassword) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    req.session.user = { 
+      username,
+      role: username === adminUsername ? 'admin' : 'user'
+    };
+    return res.json({ success: true, redirect: '/dashboard' });
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/dashboard', requireAuth, (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'dashboard.html'));
+});
+
+// API endpoints
 app.post('/upload', requireAuth, upload.single('file'), (req, res) => {
   try {
     if (!req.file) {
@@ -135,6 +194,11 @@ app.delete('/files/:filename', requireAuth, (req, res) => {
     console.error('File deletion error:', error);
     res.status(500).json({ error: 'Error deleting file' });
   }
+});
+
+app.get('/logout', (req, res) => {
+  req.session.destroy();
+  res.redirect('/login');
 });
 
 app.listen(port, '0.0.0.0', () => {
