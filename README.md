@@ -5,14 +5,16 @@ A secure file storage application with comprehensive security scanning pipeline 
 ## Features
 
 ### Application
-- File upload/download with web interface
-- User authentication (admin/user roles)
-- File management capabilities
+- Secure user authentication with role-based access (admin/user)
+- File upload and management system
+- Interactive dashboard interface
+- Session-based authentication
+- Responsive design with Tailwind CSS
 - Node.js + Express backend
-- Responsive frontend design
+- Kubernetes deployment ready
 
 ### Security Pipeline
-- Multiple security scan types
+- Multiple security scan types:
   - Vulnerability assessment
   - Malware detection
   - Secret scanning
@@ -23,25 +25,25 @@ A secure file storage application with comprehensive security scanning pipeline 
 
 ### Infrastructure
 - Container-based deployment
-- AWS ECR for image storage
-- EKS deployment with security checks
-- LoadBalancer service exposure
+- AWS ECR for container registry
+- EKS for Kubernetes orchestration
+- LoadBalancer service for external access
 
 ## Repository Structure
 ```
 .
-├── Dockerfile
-├── server.js
-├── package.json
-├── public/
-│   ├── login.html
-│   ├── dashboard.html
-│   ├── styles.css
-│   └── script.js
-├── k8s/
-│   ├── deployment.yaml
-│   └── service.yaml
-├── .github/workflows/
+├── Dockerfile              # Container build configuration
+├── server.js              # Express server implementation
+├── package.json           # Node.js dependencies
+├── public/                # Static files
+│   ├── login.html        # Login interface
+│   ├── dashboard.html    # Main application interface
+│   ├── styles.css        # Application styling
+│   └── script.js         # Client-side functionality
+├── k8s/                  # Kubernetes configurations
+│   ├── deployment.yaml   # Pod deployment configuration
+│   └── service.yaml      # Service configuration
+├── .github/workflows/    # CI/CD pipeline
 │   └── docker-build-push.yml
 └── README.md
 ```
@@ -49,65 +51,110 @@ A secure file storage application with comprehensive security scanning pipeline 
 ## Prerequisites
 
 ### AWS Configuration
-- ECR repository
-- EKS cluster
-- IAM credentials with appropriate permissions
+1. ECR repository for container images
+2. EKS cluster for deployment
+3. IAM credentials with permissions for:
+   - ECR push/pull
+   - EKS cluster management
 
 ### GitHub Configuration
-- **Secrets:**
-  - AWS_ACCESS_KEY_ID
-  - AWS_SECRET_ACCESS_KEY
-  - ECR_REPOSITORY_NAME
-  - TMAS_API_KEY
-  - ADMIN_PASSWORD
-  - USER_PASSWORD
-- **Variables:**
-  - AWS_REGION
-  - EKS_CLUSTER_NAME
-  - SECURITY_MODE (protect/log)
-  - ADMIN_USERNAME
-  - USER_USERNAME
+Required secrets:
+- `AWS_ACCESS_KEY_ID`: AWS access key
+- `AWS_SECRET_ACCESS_KEY`: AWS secret key
+- `ECR_REPOSITORY_NAME`: ECR repository name
+- `TMAS_API_KEY`: Trend Micro Artifact Scanner API key
+- `ADMIN_PASSWORD`: Admin user password
+- `USER_PASSWORD`: Regular user password
 
-## Security Pipeline Flow
+Required variables:
+- `AWS_REGION`: AWS region for services
+- `EKS_CLUSTER_NAME`: EKS cluster name
+- `SECURITY_MODE`: Pipeline mode (`protect`/`log`)
+- `ADMIN_USERNAME`: Admin username
+- `USER_USERNAME`: Regular user username
 
-1. **Build**: Creates Docker image
-2. **Push**: Uploads to AWS ECR
-3. **Security Scans**: 
-   - If `protect` mode: stops on any findings
-   - If `log` mode: documents findings and continues
-4. **Deploy**: EKS deployment if checks pass
+## Application Access
 
-## Usage
-
-### Access Credentials
-- Admin access: `${{ vars.ADMIN_USERNAME }}`
-- User access: `${{ vars.USER_USERNAME }}`
-
-### Deployment
+The application is accessible through the LoadBalancer URL:
 ```bash
-# View deployments
-kubectl get deployments -o wide
+# Get service URL
+kubectl get service bytevault-service
 
-# View services
-kubectl get services -o wide
-
-# Check pods
-kubectl get pods -o wide
+# Access the application
+http://<EXTERNAL-IP>:3000
 ```
 
-### Security Modes
+### Authentication
+- Admin login: Use ADMIN_USERNAME and ADMIN_PASSWORD
+- User login: Use USER_USERNAME and USER_PASSWORD
+
+## Local Development
+
+1. Install dependencies:
 ```bash
-# Set protect mode
+npm install
+```
+
+2. Set environment variables:
+```bash
+export ADMIN_USERNAME=admin
+export ADMIN_PASSWORD=your_admin_password
+export USER_USERNAME=user
+export USER_PASSWORD=your_user_password
+```
+
+3. Run the application:
+```bash
+npm start
+```
+
+4. Access at `http://localhost:3000`
+
+## Deployment Flow
+
+1. Push to main branch triggers the CI/CD pipeline
+2. Pipeline stages:
+   - Build Docker image
+   - Push to ECR
+   - Run security scans:
+     - Vulnerability assessment
+     - Malware detection
+     - Secret scanning
+     - SBOM generation
+   - Deploy to EKS (if security checks pass)
+
+## Monitoring
+
+Check deployment status:
+```bash
+# View deployments
+kubectl get deployments
+
+# View services
+kubectl get services
+
+# Check pods
+kubectl get pods
+
+# View logs
+kubectl logs <pod-name>
+```
+
+## Security Modes
+
+Configure pipeline behavior with SECURITY_MODE:
+```bash
+# Fail on security findings
 SECURITY_MODE=protect
 
-# Set log mode
+# Log findings only
 SECURITY_MODE=log
 ```
 
 ## Contributing
 
 1. Fork the repository
-2. Create feature branch
+2. Create a feature branch
 3. Commit changes
 4. Push to branch
 5. Submit Pull Request
