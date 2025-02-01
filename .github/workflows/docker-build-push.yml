@@ -302,165 +302,165 @@ jobs:
           path: SBOM_*.json
           retention-days: 90
 
-deploy-to-k8s:
-    needs: [vulnerabilities-scan, malware-scan, secrets-scan, sbom-scan]
-    if: >
-      always() && (
-        ${{ vars.SECURITY_MODE != 'protect' }} || (
-          needs.vulnerabilities-scan.result != 'failure' && 
-          needs.malware-scan.result != 'failure' && 
-          needs.secrets-scan.result != 'failure' && 
-          needs.sbom-scan.result != 'failure'
+  deploy-to-k8s:
+      needs: [vulnerabilities-scan, malware-scan, secrets-scan, sbom-scan]
+      if: >
+        always() && (
+          ${{ vars.SECURITY_MODE != 'protect' }} || (
+            needs.vulnerabilities-scan.result != 'failure' && 
+            needs.malware-scan.result != 'failure' && 
+            needs.secrets-scan.result != 'failure' && 
+            needs.sbom-scan.result != 'failure'
+          )
         )
-      )
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ vars.AWS_REGION }}
+      runs-on: ubuntu-latest
+      steps:
+        - uses: actions/checkout@v4
+        
+        - name: Configure AWS credentials
+          uses: aws-actions/configure-aws-credentials@v4
+          with:
+            aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+            aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+            aws-region: ${{ vars.AWS_REGION }}
 
-      - name: List available EKS clusters
-        run: aws eks list-clusters
-      
-      - name: Check required variables
-        run: |
-          if [ -z "${{ vars.EKS_CLUSTER_NAME }}" ]; then
-            echo "Error: EKS_CLUSTER_NAME variable is not set"
-            exit 1
-          fi
-          
-      - name: Extract cluster name and update kube config
-        run: |
-          FULL_CLUSTER_NAME="${{ vars.EKS_CLUSTER_NAME }}"
-          CLUSTER_NAME=$(echo $FULL_CLUSTER_NAME | cut -d'@' -f2 | cut -d'.' -f1)
-          echo "Using cluster name: $CLUSTER_NAME"
-          aws eks update-kubeconfig --name $CLUSTER_NAME --region ${{ vars.AWS_REGION }}
-      
-      - name: Verify cluster access
-        run: |
-          kubectl cluster-info
-          kubectl config current-context
-      
-      - name: Get ECR registry
-        id: ecr
-        run: |
-          ECR_REGISTRY=$(aws ecr describe-registry --query registryId --output text)
-          echo "registry=${ECR_REGISTRY}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com" >> $GITHUB_OUTPUT
+        - name: List available EKS clusters
+          run: aws eks list-clusters
+        
+        - name: Check required variables
+          run: |
+            if [ -z "${{ vars.EKS_CLUSTER_NAME }}" ]; then
+              echo "Error: EKS_CLUSTER_NAME variable is not set"
+              exit 1
+            fi
+            
+        - name: Extract cluster name and update kube config
+          run: |
+            FULL_CLUSTER_NAME="${{ vars.EKS_CLUSTER_NAME }}"
+            CLUSTER_NAME=$(echo $FULL_CLUSTER_NAME | cut -d'@' -f2 | cut -d'.' -f1)
+            echo "Using cluster name: $CLUSTER_NAME"
+            aws eks update-kubeconfig --name $CLUSTER_NAME --region ${{ vars.AWS_REGION }}
+        
+        - name: Verify cluster access
+          run: |
+            kubectl cluster-info
+            kubectl config current-context
+        
+        - name: Get ECR registry
+          id: ecr
+          run: |
+            ECR_REGISTRY=$(aws ecr describe-registry --query registryId --output text)
+            echo "registry=${ECR_REGISTRY}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com" >> $GITHUB_OUTPUT
 
-      - name: Create Kubernetes ConfigMap and Secrets
-        run: |
-          # Create ConfigMap
-          cat <<EOF | kubectl apply -f -
-          apiVersion: v1
-          kind: ConfigMap
-          metadata:
-            name: bytevault-config
-          data:
-            admin-username: "${{ vars.ADMIN_USERNAME }}"
-            user-username: "${{ vars.USER_USERNAME }}"
-          EOF
-          
-          # Create Secrets
-          cat <<EOF | kubectl apply -f -
-          apiVersion: v1
-          kind: Secret
-          metadata:
-            name: bytevault-secrets
-          type: Opaque
-          data:
-            admin-password: $(echo -n "${{ secrets.ADMIN_PASSWORD }}" | base64)
-            user-password: $(echo -n "${{ secrets.USER_PASSWORD }}" | base64)
-          EOF
+        - name: Create Kubernetes ConfigMap and Secrets
+          run: |
+            # Create ConfigMap
+            cat <<EOF | kubectl apply -f -
+            apiVersion: v1
+            kind: ConfigMap
+            metadata:
+              name: bytevault-config
+            data:
+              admin-username: "${{ vars.ADMIN_USERNAME }}"
+              user-username: "${{ vars.USER_USERNAME }}"
+            EOF
+            
+            # Create Secrets
+            cat <<EOF | kubectl apply -f -
+            apiVersion: v1
+            kind: Secret
+            metadata:
+              name: bytevault-secrets
+            type: Opaque
+            data:
+              admin-password: $(echo -n "${{ secrets.ADMIN_PASSWORD }}" | base64)
+              user-password: $(echo -n "${{ secrets.USER_PASSWORD }}" | base64)
+            EOF
 
-      - name: Update deployment configuration
-        run: |
-          cat <<EOF > k8s/deployment.yaml
-          apiVersion: apps/v1
-          kind: Deployment
-          metadata:
-            name: bytevault-deployment
-            labels:
-              app: bytevault
-          spec:
-            replicas: 1
-            selector:
-              matchLabels:
+        - name: Update deployment configuration
+          run: |
+            cat <<EOF > k8s/deployment.yaml
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: bytevault-deployment
+              labels:
                 app: bytevault
-            template:
-              metadata:
-                labels:
+            spec:
+              replicas: 1
+              selector:
+                matchLabels:
                   app: bytevault
-              spec:
-                containers:
-                - name: bytevault
-                  image: ${{ steps.ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY_NAME }}:latest
-                  ports:
-                  - containerPort: 3000
-                  env:
-                  - name: ADMIN_USERNAME
-                    valueFrom:
-                      configMapKeyRef:
-                        name: bytevault-config
-                        key: admin-username
-                  - name: USER_USERNAME
-                    valueFrom:
-                      configMapKeyRef:
-                        name: bytevault-config
-                        key: user-username
-                  - name: ADMIN_PASSWORD
-                    valueFrom:
-                      secretKeyRef:
-                        name: bytevault-secrets
-                        key: admin-password
-                  - name: USER_PASSWORD
-                    valueFrom:
-                      secretKeyRef:
-                        name: bytevault-secrets
-                        key: user-password
-                  volumeMounts:
+              template:
+                metadata:
+                  labels:
+                    app: bytevault
+                spec:
+                  containers:
+                  - name: bytevault
+                    image: ${{ steps.ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY_NAME }}:latest
+                    ports:
+                    - containerPort: 3000
+                    env:
+                    - name: ADMIN_USERNAME
+                      valueFrom:
+                        configMapKeyRef:
+                          name: bytevault-config
+                          key: admin-username
+                    - name: USER_USERNAME
+                      valueFrom:
+                        configMapKeyRef:
+                          name: bytevault-config
+                          key: user-username
+                    - name: ADMIN_PASSWORD
+                      valueFrom:
+                        secretKeyRef:
+                          name: bytevault-secrets
+                          key: admin-password
+                    - name: USER_PASSWORD
+                      valueFrom:
+                        secretKeyRef:
+                          name: bytevault-secrets
+                          key: user-password
+                    volumeMounts:
+                    - name: uploads-volume
+                      mountPath: /app/uploads
+                  volumes:
                   - name: uploads-volume
-                    mountPath: /app/uploads
-                volumes:
-                - name: uploads-volume
-                  emptyDir: {}
-          EOF
+                    emptyDir: {}
+            EOF
 
-      - name: Deploy to Kubernetes
-        run: |
-          kubectl apply -f k8s/deployment.yaml
-          kubectl apply -f k8s/service.yaml
+        - name: Deploy to Kubernetes
+          run: |
+            kubectl apply -f k8s/deployment.yaml
+            kubectl apply -f k8s/service.yaml
 
-      - name: Verify Deployment
-        run: |
-          echo "Checking deployments..."
-          kubectl get deployments
-          
-          echo "Checking services..."
-          kubectl get services
-          
-          echo "Checking pods..."
-          kubectl get pods
-          
-          # Wait for deployment rollout
-          kubectl rollout status deployment/bytevault-deployment --timeout=300s
-          
-          # Get pod name and check logs
-          POD_NAME=$(kubectl get pods -l app=bytevault -o jsonpath="{.items[0].metadata.name}")
-          echo "Checking pod logs..."
-          kubectl logs $POD_NAME
+        - name: Verify Deployment
+          run: |
+            echo "Checking deployments..."
+            kubectl get deployments
+            
+            echo "Checking services..."
+            kubectl get services
+            
+            echo "Checking pods..."
+            kubectl get pods
+            
+            # Wait for deployment rollout
+            kubectl rollout status deployment/bytevault-deployment --timeout=300s
+            
+            # Get pod name and check logs
+            POD_NAME=$(kubectl get pods -l app=bytevault -o jsonpath="{.items[0].metadata.name}")
+            echo "Checking pod logs..."
+            kubectl logs $POD_NAME
 
-      - name: Security mode summary
-        run: |
-          echo "## 🔐 Security Configuration" >> $GITHUB_STEP_SUMMARY
-          echo "| Setting | Value | Description |" >> $GITHUB_STEP_SUMMARY
-          echo "|----------|---------|-------------|" >> $GITHUB_STEP_SUMMARY
-          if [ "${{ env.SECURITY_MODE }}" = "protect" ]; then
-            echo "| Mode | 🛡️ PROTECT | Pipeline will fail if vulnerabilities, malware, or secrets are found |" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "| Mode | 📝 LOG | Pipeline will continue regardless of scan findings |" >> $GITHUB_STEP_SUMMARY
-          fi
+        - name: Security mode summary
+          run: |
+            echo "## 🔐 Security Configuration" >> $GITHUB_STEP_SUMMARY
+            echo "| Setting | Value | Description |" >> $GITHUB_STEP_SUMMARY
+            echo "|----------|---------|-------------|" >> $GITHUB_STEP_SUMMARY
+            if [ "${{ env.SECURITY_MODE }}" = "protect" ]; then
+              echo "| Mode | 🛡️ PROTECT | Pipeline will fail if vulnerabilities, malware, or secrets are found |" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "| Mode | 📝 LOG | Pipeline will continue regardless of scan findings |" >> $GITHUB_STEP_SUMMARY
+            fi
