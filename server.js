@@ -3,7 +3,6 @@ const session = require('express-session');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const bcrypt = require('bcrypt');
 
 const app = express();
 const port = 3000;
@@ -13,6 +12,16 @@ const adminUsername = process.env.ADMIN_USERNAME;
 const adminPassword = process.env.ADMIN_PASSWORD;
 const userUsername = process.env.USER_USERNAME;
 const userPassword = process.env.USER_PASSWORD;
+
+// Startup logging
+console.log('Starting ByteVault with configuration:');
+console.log('Admin username configured:', !!adminUsername);
+console.log('User username configured:', !!userUsername);
+console.log('Public directory contents:');
+fs.readdir(path.join(__dirname, 'public'), (err, files) => {
+  if (err) console.error('Error reading public dir:', err);
+  else console.log(files);
+});
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -25,64 +34,75 @@ const storage = multer.diskStorage({
 const upload = multer({ storage: storage });
 
 // Session configuration
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 app.use(session({
   secret: 'bytevault-secret-key',
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: false, // set to true if using HTTPS
-    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    secure: false,
+    maxAge: 24 * 60 * 60 * 1000
   }
 }));
 
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Add request logging middleware
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} ${req.method} ${req.url}`);
+  next();
+});
+
+// Serve static files with proper paths
+app.use(express.static(path.join(__dirname, 'public')));
+
 // Authentication middleware
 const requireAuth = (req, res, next) => {
+  console.log('Auth check - Session:', req.session);
   if (!req.session.user) {
     return res.redirect('/login');
   }
   next();
 };
 
-// Serve static files
-app.use(express.static('public'));
-
-// Root route - redirect to login or dashboard
+// Root route with explicit redirect
 app.get('/', (req, res) => {
+  console.log('Root path accessed, session:', req.session);
   if (req.session.user) {
+    console.log('Redirecting to dashboard');
     res.redirect('/dashboard');
   } else {
+    console.log('Redirecting to login');
     res.redirect('/login');
   }
 });
 
-// Login routes
 app.get('/login', (req, res) => {
+  console.log('Login page requested');
   if (req.session.user) {
     return res.redirect('/dashboard');
   }
-  res.sendFile(path.join(__dirname, 'public', 'login.html'));
+  const loginPath = path.join(__dirname, 'public', 'login.html');
+  console.log('Serving login page from:', loginPath);
+  res.sendFile(loginPath);
 });
 
 app.post('/login', async (req, res) => {
+  console.log('Login attempt:', req.body);
   try {
     const { username, password } = req.body;
     
-    // Get passwords from environment variables
     const userPasswords = {
       [adminUsername]: adminPassword,
       [userUsername]: userPassword
     };
 
-    // Check if user exists
     const storedPassword = userPasswords[username];
     if (!storedPassword) {
       console.log('User not found:', username);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    // Compare passwords directly since we're getting plain text from env vars
     if (password === storedPassword) {
       req.session.user = { 
         username,
@@ -101,46 +121,13 @@ app.post('/login', async (req, res) => {
 });
 
 app.get('/dashboard', requireAuth, (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'dashboard.html'));
+  console.log('Dashboard requested by:', req.session.user?.username);
+  const dashboardPath = path.join(__dirname, 'public', 'dashboard.html');
+  console.log('Serving dashboard from:', dashboardPath);
+  res.sendFile(dashboardPath);
 });
 
-app.post('/upload', requireAuth, upload.single('file'), (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ error: 'No file uploaded' });
-  }
-  res.json({ 
-    message: 'File uploaded successfully',
-    filename: req.file.filename
-  });
-});
-
-app.get('/files', requireAuth, (req, res) => {
-  fs.readdir('./uploads', (err, files) => {
-    if (err) {
-      return res.status(500).json({ error: 'Error reading files' });
-    }
-    const fileList = files.map(filename => ({
-      name: filename,
-      path: `/uploads/${filename}`
-    }));
-    res.json(fileList);
-  });
-});
-
-app.delete('/files/:filename', requireAuth, (req, res) => {
-  const filepath = path.join('./uploads', req.params.filename);
-  fs.unlink(filepath, (err) => {
-    if (err) {
-      return res.status(500).json({ error: 'Error deleting file' });
-    }
-    res.json({ message: 'File deleted successfully' });
-  });
-});
-
-app.get('/logout', (req, res) => {
-  req.session.destroy();
-  res.redirect('/login');
-});
+// Rest of your routes...
 
 app.listen(port, '0.0.0.0', () => {
   console.log(`ByteVault running on port ${port}`);
