@@ -80,7 +80,7 @@ jobs:
 
   vulnerabilities-scan:
     needs: push-to-ecr
-    if: ${{ env.SECURITY_ENABLED == 'true' }}
+    if: ${{ vars.SECURITY_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -148,7 +148,7 @@ jobs:
 
   malware-scan:
     needs: push-to-ecr
-    if: ${{ env.SECURITY_ENABLED == 'true' }}
+    if: ${{ vars.SECURITY_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -223,7 +223,7 @@ jobs:
 
   secrets-scan:
     needs: push-to-ecr
-    if: ${{ env.SECURITY_ENABLED == 'true' }}
+    if: ${{ vars.SECURITY_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -281,7 +281,7 @@ jobs:
 
   sbom-scan:
     needs: push-to-ecr
-    if: ${{ env.SECURITY_ENABLED == 'true' }}
+    if: ${{ vars.SECURITY_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -319,7 +319,7 @@ jobs:
       needs: [vulnerabilities-scan, malware-scan, secrets-scan, sbom-scan]
       if: >
         always() && (
-          env.SECURITY_ENABLED != 'true' || 
+          vars.SECURITY_ENABLED != 'true' || 
           vars.SECURITY_MODE != 'protect' || (
             needs.vulnerabilities-scan.result != 'failure' && 
             needs.malware-scan.result != 'failure' && 
@@ -473,9 +473,9 @@ jobs:
             echo "## 🔐 Security Configuration" >> $GITHUB_STEP_SUMMARY
             echo "| Setting | Value | Description |" >> $GITHUB_STEP_SUMMARY
             echo "|----------|---------|-------------|" >> $GITHUB_STEP_SUMMARY
-            if [ "${{ env.SECURITY_ENABLED }}" != "true" ]; then
+            if [ "${{ vars.SECURITY_ENABLED }}" != "true" ]; then
               echo "| Status | ⚪ DISABLED | Security scanning is disabled |" >> $GITHUB_STEP_SUMMARY
-            elif [ "${{ env.SECURITY_MODE }}" = "protect" ]; then
+            elif [ "${{ vars.SECURITY_MODE }}" = "protect" ]; then
               echo "| Mode | 🛡️ PROTECT | Pipeline will fail if vulnerabilities, malware, or secrets are found |" >> $GITHUB_STEP_SUMMARY
             else
               echo "| Mode | 📝 LOG | Pipeline will continue regardless of scan findings |" >> $GITHUB_STEP_SUMMARY
