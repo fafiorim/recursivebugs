@@ -320,16 +320,16 @@ jobs:
           retention-days: 90
 
   deploy-to-k8s:
-        needs: [check-security-settings, vulnerabilities-scan, malware-scan, secrets-scan, sbom-scan]
-        if: |
-          always() && (
-            needs.check-security-settings.outputs.run_scans != 'true' ||
-            env.SECURITY_MODE != 'protect' ||
-            (needs.vulnerabilities-scan.result == 'success' &&
-            needs.malware-scan.result == 'success' &&
-            needs.secrets-scan.result == 'success' &&
-            needs.sbom-scan.result == 'success')
-          )
+      needs: [check-security-settings, vulnerabilities-scan, malware-scan, secrets-scan, sbom-scan]
+      if: |
+        always() && (
+          needs.check-security-settings.outputs.run_scans != 'true' ||
+          vars.SECURITY_MODE != 'protect' ||
+          (needs.vulnerabilities-scan.result == 'success' &&
+           needs.malware-scan.result == 'success' &&
+           needs.secrets-scan.result == 'success' &&
+           needs.sbom-scan.result == 'success')
+        )
         runs-on: ubuntu-latest
         steps:
           - uses: actions/checkout@v4
