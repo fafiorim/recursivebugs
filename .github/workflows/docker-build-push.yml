@@ -2,11 +2,17 @@ name: Docker Build, Scan and Deploy
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
+      - fafiorim-patch-1
+
   pull_request:
-    branches: [ main ]
+    branches:
+      - main
+      - fafiorim-patch-1
 
 env:
+  SECURITY_ENABLED: ${{ vars.SECURITY_ENABLED || 'true' }}
   SECURITY_MODE: ${{ vars.SECURITY_MODE || 'protect' }}
 
 jobs:
@@ -70,8 +76,42 @@ jobs:
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           echo "IMAGE=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_ENV
 
-  vulnerabilities-scan:
+  check-security-settings:
     needs: push-to-ecr
+    runs-on: ubuntu-latest
+    outputs:
+      run_scans: ${{ steps.check.outputs.run_scans }}
+    steps:
+      - name: Check security configuration
+        id: check
+        run: |
+          if [[ "${{ env.SECURITY_ENABLED }}" == "true" ]]; then
+            echo "Security scanning is enabled"
+            echo "run_scans=true" >> $GITHUB_OUTPUT
+          else
+            echo "Security scanning is disabled"
+            echo "run_scans=false" >> $GITHUB_OUTPUT
+          fi
+          
+          echo "## 🔐 Security Configuration" >> $GITHUB_STEP_SUMMARY
+          echo "| Setting | Value | Description |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|---------|-------------|" >> $GITHUB_STEP_SUMMARY
+          if [[ "${{ env.SECURITY_ENABLED }}" == "true" ]]; then
+            if [[ "${{ env.SECURITY_MODE }}" == "protect" ]]; then
+              echo "| Status | ✅ ENABLED | Security scanning is active" >> $GITHUB_STEP_SUMMARY
+              echo "| Mode | 🛡️ PROTECT | Pipeline will fail if issues are found |" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "| Status | ✅ ENABLED | Security scanning is active" >> $GITHUB_STEP_SUMMARY
+              echo "| Mode | 📝 LOG | Pipeline will continue regardless of findings |" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "| Status | ⚠️ DISABLED | Security scanning is bypassed" >> $GITHUB_STEP_SUMMARY
+            echo "| Mode | ➖ N/A | No security checks will be performed |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  vulnerabilities-scan:
+    needs: check-security-settings
+    if: needs.check-security-settings.outputs.run_scans == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -91,6 +131,7 @@ jobs:
           echo "Running in ${{ env.SECURITY_MODE }} mode - $([ "${{ env.SECURITY_MODE }}" = "protect" ] && echo "will fail on findings" || echo "logging findings only")"
 
       - name: Scan for Vulnerabilities
+        continue-on-error: ${{ env.SECURITY_MODE != 'protect' }}
         run: tmas scan docker-archive:bytevault.tar -V > vulnerability-scan-results.json
       
       - name: Analyze vulnerabilities and create summary
@@ -105,25 +146,18 @@ jobs:
           MEDIUM=$(jq '.vulnerabilities.mediumCount' vulnerability-scan-results.json)
           LOW=$(jq '.vulnerabilities.lowCount' vulnerability-scan-results.json)
           
-          echo "| Severity  | Count |" >> $GITHUB_STEP_SUMMARY
-          echo "|-----------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Critical  | $CRITICAL |" >> $GITHUB_STEP_SUMMARY
-          echo "| High      | $HIGH |" >> $GITHUB_STEP_SUMMARY
-          echo "| Medium    | $MEDIUM |" >> $GITHUB_STEP_SUMMARY
-          echo "| Low       | $LOW |" >> $GITHUB_STEP_SUMMARY
+          echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Critical | $CRITICAL |" >> $GITHUB_STEP_SUMMARY
+          echo "| High     | $HIGH |" >> $GITHUB_STEP_SUMMARY
+          echo "| Medium   | $MEDIUM |" >> $GITHUB_STEP_SUMMARY
+          echo "| Low      | $LOW |" >> $GITHUB_STEP_SUMMARY
           
           if [ "$CRITICAL" -gt 0 ]; then
             echo "### ❌ Critical Vulnerabilities" >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
             jq -r '.vulnerabilities.findings[] | select(.severity=="CRITICAL") | "- "+.id+": "+.description' vulnerability-scan-results.json >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-            
-            if [ "${{ env.SECURITY_MODE }}" = "protect" ]; then
-              echo "Critical vulnerabilities found in PROTECT mode! Failing..."
-              exit 1
-            else
-              echo "Running in LOG mode - documenting findings only"
-            fi
           else
             echo "### ✅ No Critical Vulnerabilities Found" >> $GITHUB_STEP_SUMMARY
           fi
@@ -137,7 +171,8 @@ jobs:
           retention-days: 90
 
   malware-scan:
-    needs: push-to-ecr
+    needs: check-security-settings
+    if: needs.check-security-settings.outputs.run_scans == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -156,6 +191,7 @@ jobs:
         run: mkdir -p scan-results
       
       - name: Scan for Malware
+        continue-on-error: ${{ env.SECURITY_MODE != 'protect' }}
         run: |
           tmas scan docker-archive:bytevault.tar -M > scan-results/malware-scan-results.json
           cp scan-results/malware-scan-results.json .
@@ -180,22 +216,6 @@ jobs:
             echo "| File | Size | Malware Name |" >> $GITHUB_STEP_SUMMARY
             echo "|------|------|--------------|" >> $GITHUB_STEP_SUMMARY
             jq -r '.malware.findings[] | "| \(.fileName) | \(.fileSize) bytes | \(.foundMalwares[0].malwareName) |"' scan-results/malware-scan-results.json >> $GITHUB_STEP_SUMMARY
-            
-            echo "### Detailed Scan Information" >> $GITHUB_STEP_SUMMARY
-            SCANNER_VERSION=$(jq -r '.malware.scannerVersion' scan-results/malware-scan-results.json)
-            SCAN_ID=$(jq -r '.malware.scanID' scan-results/malware-scan-results.json)
-            LAYER_DIGEST=$(jq -r '.malware.findings[0].layerDigest' scan-results/malware-scan-results.json)
-            
-            echo "- Scanner Version: $SCANNER_VERSION" >> $GITHUB_STEP_SUMMARY
-            echo "- Scan ID: $SCAN_ID" >> $GITHUB_STEP_SUMMARY
-            echo "- Layer Info: $LAYER_DIGEST" >> $GITHUB_STEP_SUMMARY
-            
-            if [ "${{ env.SECURITY_MODE }}" = "protect" ]; then
-              echo "Malware detected in PROTECT mode! Failing..."
-              exit 1
-            else
-              echo "Running in LOG mode - documenting findings only"
-            fi
           else
             echo "### ✅ No Malware Detected" >> $GITHUB_STEP_SUMMARY
           fi
@@ -211,7 +231,8 @@ jobs:
           retention-days: 90
 
   secrets-scan:
-    needs: push-to-ecr
+    needs: check-security-settings
+    if: needs.check-security-settings.outputs.run_scans == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -227,6 +248,7 @@ jobs:
         run: echo "TMAS_API_KEY=${{ secrets.TMAS_API_KEY }}" >> $GITHUB_ENV
       
       - name: Scan for Secrets
+        continue-on-error: ${{ env.SECURITY_MODE != 'protect' }}
         run: tmas scan docker-archive:bytevault.tar -S > secrets-scan-results.json
       
       - name: Analyze secrets and create summary
@@ -248,13 +270,6 @@ jobs:
             echo "| Rule ID | Location |" >> $GITHUB_STEP_SUMMARY
             echo "|---------|-----------|" >> $GITHUB_STEP_SUMMARY
             jq -r '.secrets.findings.unmitigated[]? | "| \(.ruleID) | \(.location.path) |"' secrets-scan-results.json >> $GITHUB_STEP_SUMMARY
-            
-            if [ "${{ env.SECURITY_MODE }}" = "protect" ]; then
-              echo "Secrets detected in PROTECT mode! Failing..."
-              exit 1
-            else
-              echo "Running in LOG mode - documenting findings only"
-            fi
           else
             echo "### ✅ No Secrets Found" >> $GITHUB_STEP_SUMMARY
           fi
@@ -268,7 +283,8 @@ jobs:
           retention-days: 90
 
   sbom-scan:
-    needs: push-to-ecr
+    needs: check-security-settings
+    if: needs.check-security-settings.outputs.run_scans == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -284,6 +300,7 @@ jobs:
         run: echo "TMAS_API_KEY=${{ secrets.TMAS_API_KEY }}" >> $GITHUB_ENV
       
       - name: Generate SBOM
+        continue-on-error: ${{ env.SECURITY_MODE != 'protect' }}
         run: tmas scan docker-archive:bytevault.tar -V --saveSBOM > sbom-scan-results.json
       
       - name: Upload SBOM logs
@@ -303,164 +320,186 @@ jobs:
           retention-days: 90
 
   deploy-to-k8s:
-      needs: [vulnerabilities-scan, malware-scan, secrets-scan, sbom-scan]
-      if: >
-        always() && (
-          ${{ vars.SECURITY_MODE != 'protect' }} || (
-            needs.vulnerabilities-scan.result != 'failure' && 
-            needs.malware-scan.result != 'failure' && 
-            needs.secrets-scan.result != 'failure' && 
-            needs.sbom-scan.result != 'failure'
+        needs: [check-security-settings, vulnerabilities-scan, malware-scan, secrets-scan, sbom-scan]
+        if: |
+          always() && (
+            needs.check-security-settings.outputs.run_scans != 'true' ||
+            env.SECURITY_MODE != 'protect' ||
+            (needs.vulnerabilities-scan.result == 'success' &&
+            needs.malware-scan.result == 'success' &&
+            needs.secrets-scan.result == 'success' &&
+            needs.sbom-scan.result == 'success')
           )
-        )
-      runs-on: ubuntu-latest
-      steps:
-        - uses: actions/checkout@v4
-        
-        - name: Configure AWS credentials
-          uses: aws-actions/configure-aws-credentials@v4
-          with:
-            aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-            aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-            aws-region: ${{ vars.AWS_REGION }}
+        runs-on: ubuntu-latest
+        steps:
+          - uses: actions/checkout@v4
+          
+          - name: Configure AWS credentials
+            uses: aws-actions/configure-aws-credentials@v4
+            with:
+              aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+              aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+              aws-region: ${{ vars.AWS_REGION }}
 
-        - name: List available EKS clusters
-          run: aws eks list-clusters
-        
-        - name: Check required variables
-          run: |
-            if [ -z "${{ vars.EKS_CLUSTER_NAME }}" ]; then
-              echo "Error: EKS_CLUSTER_NAME variable is not set"
-              exit 1
-            fi
-            
-        - name: Extract cluster name and update kube config
-          run: |
-            FULL_CLUSTER_NAME="${{ vars.EKS_CLUSTER_NAME }}"
-            CLUSTER_NAME=$(echo $FULL_CLUSTER_NAME | cut -d'@' -f2 | cut -d'.' -f1)
-            echo "Using cluster name: $CLUSTER_NAME"
-            aws eks update-kubeconfig --name $CLUSTER_NAME --region ${{ vars.AWS_REGION }}
-        
-        - name: Verify cluster access
-          run: |
-            kubectl cluster-info
-            kubectl config current-context
-        
-        - name: Get ECR registry
-          id: ecr
-          run: |
-            ECR_REGISTRY=$(aws ecr describe-registry --query registryId --output text)
-            echo "registry=${ECR_REGISTRY}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com" >> $GITHUB_OUTPUT
+          - name: List available EKS clusters
+            run: aws eks list-clusters
+          
+          - name: Check required variables
+            run: |
+              if [ -z "${{ vars.EKS_CLUSTER_NAME }}" ]; then
+                echo "Error: EKS_CLUSTER_NAME variable is not set"
+                exit 1
+              fi
+              
+          - name: Extract cluster name and update kube config
+            run: |
+              FULL_CLUSTER_NAME="${{ vars.EKS_CLUSTER_NAME }}"
+              CLUSTER_NAME=$(echo $FULL_CLUSTER_NAME | cut -d'@' -f2 | cut -d'.' -f1)
+              echo "Using cluster name: $CLUSTER_NAME"
+              aws eks update-kubeconfig --name $CLUSTER_NAME --region ${{ vars.AWS_REGION }}
+          
+          - name: Verify cluster access
+            run: |
+              kubectl cluster-info
+              kubectl config current-context
+          
+          - name: Get ECR registry
+            id: ecr
+            run: |
+              ECR_REGISTRY=$(aws ecr describe-registry --query registryId --output text)
+              echo "registry=${ECR_REGISTRY}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com" >> $GITHUB_OUTPUT
 
-        - name: Create Kubernetes ConfigMap and Secrets
-          run: |
-            # Create ConfigMap
-            cat <<EOF | kubectl apply -f -
-            apiVersion: v1
-            kind: ConfigMap
-            metadata:
-              name: bytevault-config
-            data:
-              admin-username: "${{ vars.ADMIN_USERNAME }}"
-              user-username: "${{ vars.USER_USERNAME }}"
-            EOF
-            
-            # Create Secrets
-            cat <<EOF | kubectl apply -f -
-            apiVersion: v1
-            kind: Secret
-            metadata:
-              name: bytevault-secrets
-            type: Opaque
-            data:
-              admin-password: $(echo -n "${{ secrets.ADMIN_PASSWORD }}" | base64)
-              user-password: $(echo -n "${{ secrets.USER_PASSWORD }}" | base64)
-            EOF
+          - name: Create Kubernetes ConfigMap and Secrets
+            run: |
+              # Create ConfigMap
+              cat <<EOF | kubectl apply -f -
+              apiVersion: v1
+              kind: ConfigMap
+              metadata:
+                name: bytevault-config
+              data:
+                admin-username: "${{ vars.ADMIN_USERNAME }}"
+                user-username: "${{ vars.USER_USERNAME }}"
+              EOF
+              
+              # Create Secrets
+              cat <<EOF | kubectl apply -f -
+              apiVersion: v1
+              kind: Secret
+              metadata:
+                name: bytevault-secrets
+              type: Opaque
+              data:
+                admin-password: $(echo -n "${{ secrets.ADMIN_PASSWORD }}" | base64)
+                user-password: $(echo -n "${{ secrets.USER_PASSWORD }}" | base64)
+              EOF
 
-        - name: Update deployment configuration
-          run: |
-            cat <<EOF > k8s/deployment.yaml
-            apiVersion: apps/v1
-            kind: Deployment
-            metadata:
-              name: bytevault-deployment
-              labels:
-                app: bytevault
-            spec:
-              replicas: 1
-              selector:
-                matchLabels:
+          - name: Update deployment configuration
+            run: |
+              cat <<EOF > k8s/deployment.yaml
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: bytevault-deployment
+                labels:
                   app: bytevault
-              template:
-                metadata:
-                  labels:
+              spec:
+                replicas: 1
+                selector:
+                  matchLabels:
                     app: bytevault
-                spec:
-                  containers:
-                  - name: bytevault
-                    image: ${{ steps.ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY_NAME }}:latest
-                    ports:
-                    - containerPort: 3000
-                    env:
-                    - name: ADMIN_USERNAME
-                      valueFrom:
-                        configMapKeyRef:
-                          name: bytevault-config
-                          key: admin-username
-                    - name: USER_USERNAME
-                      valueFrom:
-                        configMapKeyRef:
-                          name: bytevault-config
-                          key: user-username
-                    - name: ADMIN_PASSWORD
-                      valueFrom:
-                        secretKeyRef:
-                          name: bytevault-secrets
-                          key: admin-password
-                    - name: USER_PASSWORD
-                      valueFrom:
-                        secretKeyRef:
-                          name: bytevault-secrets
-                          key: user-password
-                    volumeMounts:
+                template:
+                  metadata:
+                    labels:
+                      app: bytevault
+                  spec:
+                    containers:
+                    - name: bytevault
+                      image: ${{ steps.ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY_NAME }}:latest
+                      ports:
+                      - containerPort: 3000
+                      env:
+                      - name: ADMIN_USERNAME
+                        valueFrom:
+                          configMapKeyRef:
+                            name: bytevault-config
+                            key: admin-username
+                      - name: USER_USERNAME
+                        valueFrom:
+                          configMapKeyRef:
+                            name: bytevault-config
+                            key: user-username
+                      - name: ADMIN_PASSWORD
+                        valueFrom:
+                          secretKeyRef:
+                            name: bytevault-secrets
+                            key: admin-password
+                      - name: USER_PASSWORD
+                        valueFrom:
+                          secretKeyRef:
+                            name: bytevault-secrets
+                            key: user-password
+                      volumeMounts:
+                      - name: uploads-volume
+                        mountPath: /app/uploads
+                    volumes:
                     - name: uploads-volume
-                      mountPath: /app/uploads
-                  volumes:
-                  - name: uploads-volume
-                    emptyDir: {}
-            EOF
+                      emptyDir: {}
+              EOF
 
-        - name: Deploy to Kubernetes
-          run: |
-            kubectl apply -f k8s/deployment.yaml
-            kubectl apply -f k8s/service.yaml
+          - name: Deploy to Kubernetes
+            run: |
+              kubectl apply -f k8s/deployment.yaml
+              kubectl apply -f k8s/service.yaml
 
-        - name: Verify Deployment
-          run: |
-            echo "Checking deployments..."
-            kubectl get deployments
-            
-            echo "Checking services..."
-            kubectl get services
-            
-            echo "Checking pods..."
-            kubectl get pods
-            
-            # Wait for deployment rollout
-            kubectl rollout status deployment/bytevault-deployment --timeout=300s
-            
-            # Get pod name and check logs
-            POD_NAME=$(kubectl get pods -l app=bytevault -o jsonpath="{.items[0].metadata.name}")
-            echo "Checking pod logs..."
-            kubectl logs $POD_NAME
+          - name: Verify Deployment
+            run: |
+              echo "Checking deployments..."
+              kubectl get deployments
+              
+              echo "Checking services..."
+              kubectl get services
+              
+              echo "Checking pods..."
+              kubectl get pods
+              
+              # Wait for deployment rollout
+              kubectl rollout status deployment/bytevault-deployment --timeout=300s
+              
+              # Get pod name and check logs
+              POD_NAME=$(kubectl get pods -l app=bytevault -o jsonpath="{.items[0].metadata.name}")
+              echo "Checking pod logs..."
+              kubectl logs $POD_NAME
 
-        - name: Security mode summary
-          run: |
-            echo "## 🔐 Security Configuration" >> $GITHUB_STEP_SUMMARY
-            echo "| Setting | Value | Description |" >> $GITHUB_STEP_SUMMARY
-            echo "|----------|---------|-------------|" >> $GITHUB_STEP_SUMMARY
-            if [ "${{ env.SECURITY_MODE }}" = "protect" ]; then
-              echo "| Mode | 🛡️ PROTECT | Pipeline will fail if vulnerabilities, malware, or secrets are found |" >> $GITHUB_STEP_SUMMARY
-            else
-              echo "| Mode | 📝 LOG | Pipeline will continue regardless of scan findings |" >> $GITHUB_STEP_SUMMARY
-            fi
+          - name: Deployment Summary
+            run: |
+              echo "## 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
+              echo "| Component | Status |" >> $GITHUB_STEP_SUMMARY
+              echo "|-----------|---------|" >> $GITHUB_STEP_SUMMARY
+              
+              # Check deployment status
+              DEPLOY_STATUS=$(kubectl get deployment bytevault-deployment -o jsonpath='{.status.conditions[?(@.type=="Available")].status}')
+              if [ "$DEPLOY_STATUS" == "True" ]; then
+                echo "| Deployment | ✅ Successful |" >> $GITHUB_STEP_SUMMARY
+              else
+                echo "| Deployment | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+              fi
+              
+              # Check pod status
+              POD_STATUS=$(kubectl get pods -l app=bytevault -o jsonpath='{.items[0].status.phase}')
+              echo "| Pod Status | $POD_STATUS |" >> $GITHUB_STEP_SUMMARY
+              
+              # Check service status
+              SVC_IP=$(kubectl get service bytevault-service -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+              if [ -n "$SVC_IP" ]; then
+                echo "| Service | ✅ Load Balancer Ready |" >> $GITHUB_STEP_SUMMARY
+                echo "| Endpoint | $SVC_IP:3000 |" >> $GITHUB_STEP_SUMMARY
+              else
+                echo "| Service | ⏳ Pending |" >> $GITHUB_STEP_SUMMARY
+              fi
+              
+              if [[ "${{ env.SECURITY_ENABLED }}" == "true" ]]; then
+                echo "| Security | ✅ Scans Completed - ${{ env.SECURITY_MODE }} mode |" >> $GITHUB_STEP_SUMMARY
+              else
+                echo "| Security | ⚠️ Scans Bypassed |" >> $GITHUB_STEP_SUMMARY
+              fi
