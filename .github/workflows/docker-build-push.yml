@@ -4,14 +4,17 @@ on:
   push:
     branches:
       - main
-      - fafiorim-patch-1
+      - qa
+      - stg
 
   pull_request:
     branches:
       - main
-      - fafiorim-patch-1
+      - qa
+      - stg
 
 env:
+  SECURITY_ENABLED: ${{ vars.SECURITY_ENABLED || 'true' }}
   SECURITY_MODE: ${{ vars.SECURITY_MODE || 'protect' }}
 
 jobs:
@@ -77,6 +80,7 @@ jobs:
 
   vulnerabilities-scan:
     needs: push-to-ecr
+    if: ${{ env.SECURITY_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -141,8 +145,10 @@ jobs:
           path: vulnerability-scan-results.json
           retention-days: 90
 
+
   malware-scan:
     needs: push-to-ecr
+    if: ${{ env.SECURITY_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -217,6 +223,7 @@ jobs:
 
   secrets-scan:
     needs: push-to-ecr
+    if: ${{ env.SECURITY_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -274,6 +281,7 @@ jobs:
 
   sbom-scan:
     needs: push-to-ecr
+    if: ${{ env.SECURITY_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -311,7 +319,8 @@ jobs:
       needs: [vulnerabilities-scan, malware-scan, secrets-scan, sbom-scan]
       if: >
         always() && (
-          ${{ vars.SECURITY_MODE != 'protect' }} || (
+          env.SECURITY_ENABLED != 'true' || 
+          vars.SECURITY_MODE != 'protect' || (
             needs.vulnerabilities-scan.result != 'failure' && 
             needs.malware-scan.result != 'failure' && 
             needs.secrets-scan.result != 'failure' && 
@@ -464,7 +473,9 @@ jobs:
             echo "## 🔐 Security Configuration" >> $GITHUB_STEP_SUMMARY
             echo "| Setting | Value | Description |" >> $GITHUB_STEP_SUMMARY
             echo "|----------|---------|-------------|" >> $GITHUB_STEP_SUMMARY
-            if [ "${{ env.SECURITY_MODE }}" = "protect" ]; then
+            if [ "${{ env.SECURITY_ENABLED }}" != "true" ]; then
+              echo "| Status | ⚪ DISABLED | Security scanning is disabled |" >> $GITHUB_STEP_SUMMARY
+            elif [ "${{ env.SECURITY_MODE }}" = "protect" ]; then
               echo "| Mode | 🛡️ PROTECT | Pipeline will fail if vulnerabilities, malware, or secrets are found |" >> $GITHUB_STEP_SUMMARY
             else
               echo "| Mode | 📝 LOG | Pipeline will continue regardless of scan findings |" >> $GITHUB_STEP_SUMMARY
