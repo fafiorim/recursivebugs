@@ -330,121 +330,121 @@ jobs:
         - name: Install Python dependencies
           run: pip install requests
         
-      - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: 1.5.0
-      
-      - name: Initialize Terraform
-        run: |
-          cd terraform
-          terraform init -backend=false
-      
-      - name: Create Terraform variables file
-        run: |
-          cd terraform
-          cat > terraform.tfvars << EOF
-          aws_region = "us-east-1"
-          environment = "production"
-          ecr_repository_name = "bytevault"
-          eks_cluster_name = "bytevault-cluster"
-          vpc_id = "vpc-dummy-12345"
-          subnet_ids = ["subnet-dummy1", "subnet-dummy2"]
-          EOF
-      
-      - name: Generate Terraform plan
-        run: |
-          cd terraform
-          terraform plan -out=tfplan
-          terraform show -json tfplan > tfplan.json
-      
-      - name: Scan Terraform template with Trend Micro Cloud Posture
-        env:
-          V1_API_TOKEN: ${{ secrets.TMAS_API_KEY }}
-          V1_REGION: ${{ vars.V1_REGION || 'api.xdr.trendmicro.com' }}
-        run: |
-          python3 << 'EOF'
-          import requests
-          import json
-          import os
-          import sys
-          
-          # Read Terraform JSON plan
-          terraform_file = 'terraform/tfplan.json'
-          with open(terraform_file, 'r') as f:
-              terraform_content = f.read()
-          
-          # API configuration
-          url_base = f"https://{os.environ['V1_REGION']}"
-          url_path = '/beta/cloudPosture/scanTemplate'
-          token = os.environ['V1_API_TOKEN']
-          
-          headers = {
-              'Authorization': 'Bearer ' + token,
-              'Content-Type': 'application/json;charset=utf-8'
-          }
-          
-          body = {
-              'type': 'terraform-json-plan',
-              'content': terraform_content
-          }
-          
-          print(f"🔍 Scanning Terraform plan: {terraform_file}")
-          print(f"📡 API endpoint: {url_base}{url_path}")
-          
-          try:
-              r = requests.post(url_base + url_path, headers=headers, json=body, timeout=120)
-              
-              print(f"\n📊 Response Status: {r.status_code}")
-              
-              if r.status_code == 200:
-                  print("✅ Template scan completed successfully")
-                  
-                  if 'application/json' in r.headers.get('Content-Type', ''):
-                      result = r.json()
-                      print("\n📋 Scan Results:")
-                      print(json.dumps(result, indent=2))
-                      
-                      # Save results to file
-                      with open('terraform-scan-results.json', 'w') as f:
-                          json.dump(result, f, indent=2)
-                      
-                      # Check for findings/issues
-                      if 'findings' in result or 'issues' in result or 'violations' in result:
-                          findings_count = len(result.get('findings', result.get('issues', result.get('violations', []))))
-                          if findings_count > 0:
-                              print(f"\n⚠️  Found {findings_count} security findings in template")
-                              if os.environ.get('SECURITY_MODE', 'protect') == 'protect':
-                                  print("❌ Template has security issues in PROTECT mode! Failing...")
-                                  sys.exit(1)
-                              else:
-                                  print("📝 Running in LOG mode - documenting findings only")
-                          else:
-                              print("\n✅ No security findings detected")
-                      else:
-                          print("\n✅ Template passed security scan")
-                  else:
-                      print(r.text)
-              elif r.status_code == 401:
-                  print("❌ Authentication failed - check V1_API_TOKEN secret")
-                  sys.exit(1)
-              elif r.status_code == 400:
-                  print("❌ Bad request - check template format")
-                  print(r.text)
-                  sys.exit(1)
-              else:
-                  print(f"⚠️  Unexpected response code: {r.status_code}")
-                  print(r.text)
-                  if os.environ.get('SECURITY_MODE', 'protect') == 'protect':
-                      sys.exit(1)
-                  
-          except requests.exceptions.RequestException as e:
-              print(f"❌ Request failed: {str(e)}")
-              sys.exit(1)
-          except Exception as e:
-              print(f"❌ Error: {str(e)}")
-              sys.exit(1)
-          EOF
+        - name: Set up Terraform
+          uses: hashicorp/setup-terraform@v3
+          with:
+            terraform_version: 1.5.0
+        
+        - name: Initialize Terraform
+          run: |
+            cd terraform
+            terraform init -backend=false
+        
+        - name: Create Terraform variables file
+          run: |
+            cd terraform
+            cat > terraform.tfvars << EOF
+            aws_region = "us-east-1"
+            environment = "production"
+            ecr_repository_name = "bytevault"
+            eks_cluster_name = "bytevault-cluster"
+            vpc_id = "vpc-dummy-12345"
+            subnet_ids = ["subnet-dummy1", "subnet-dummy2"]
+            EOF
+        
+        - name: Generate Terraform plan
+          run: |
+            cd terraform
+            terraform plan -out=tfplan
+            terraform show -json tfplan > tfplan.json
+        
+        - name: Scan Terraform template with Trend Micro Cloud Posture
+          env:
+            V1_API_TOKEN: ${{ secrets.TMAS_API_KEY }}
+            V1_REGION: ${{ vars.V1_REGION || 'api.xdr.trendmicro.com' }}
+          run: |
+            python3 << 'EOF'
+            import requests
+            import json
+            import os
+            import sys
+            
+            # Read Terraform JSON plan
+            terraform_file = 'terraform/tfplan.json'
+            with open(terraform_file, 'r') as f:
+                terraform_content = f.read()
+            
+            # API configuration
+            url_base = f"https://{os.environ['V1_REGION']}"
+            url_path = '/beta/cloudPosture/scanTemplate'
+            token = os.environ['V1_API_TOKEN']
+            
+            headers = {
+                'Authorization': 'Bearer ' + token,
+                'Content-Type': 'application/json;charset=utf-8'
+            }
+            
+            body = {
+                'type': 'terraform-json-plan',
+                'content': terraform_content
+            }
+            
+            print(f"🔍 Scanning Terraform plan: {terraform_file}")
+            print(f"📡 API endpoint: {url_base}{url_path}")
+            
+            try:
+                r = requests.post(url_base + url_path, headers=headers, json=body, timeout=120)
+                
+                print(f"\n📊 Response Status: {r.status_code}")
+                
+                if r.status_code == 200:
+                    print("✅ Template scan completed successfully")
+                    
+                    if 'application/json' in r.headers.get('Content-Type', ''):
+                        result = r.json()
+                        print("\n📋 Scan Results:")
+                        print(json.dumps(result, indent=2))
+                        
+                        # Save results to file
+                        with open('terraform-scan-results.json', 'w') as f:
+                            json.dump(result, f, indent=2)
+                        
+                        # Check for findings/issues
+                        if 'findings' in result or 'issues' in result or 'violations' in result:
+                            findings_count = len(result.get('findings', result.get('issues', result.get('violations', []))))
+                            if findings_count > 0:
+                                print(f"\n⚠️  Found {findings_count} security findings in template")
+                                if os.environ.get('SECURITY_MODE', 'protect') == 'protect':
+                                    print("❌ Template has security issues in PROTECT mode! Failing...")
+                                    sys.exit(1)
+                                else:
+                                    print("📝 Running in LOG mode - documenting findings only")
+                            else:
+                                print("\n✅ No security findings detected")
+                        else:
+                            print("\n✅ Template passed security scan")
+                    else:
+                        print(r.text)
+                elif r.status_code == 401:
+                    print("❌ Authentication failed - check V1_API_TOKEN secret")
+                    sys.exit(1)
+                elif r.status_code == 400:
+                    print("❌ Bad request - check template format")
+                    print(r.text)
+                    sys.exit(1)
+                else:
+                    print(f"⚠️  Unexpected response code: {r.status_code}")
+                    print(r.text)
+                    if os.environ.get('SECURITY_MODE', 'protect') == 'protect':
+                        sys.exit(1)
+                    
+            except requests.exceptions.RequestException as e:
+                print(f"❌ Request failed: {str(e)}")
+                sys.exit(1)
+            except Exception as e:
+                print(f"❌ Error: {str(e)}")
+                sys.exit(1)
+            EOF
         
         - name: Create scan summary
           if: always()
