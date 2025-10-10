@@ -426,8 +426,32 @@ jobs:
                         with open('terraform-scan-results.json', 'w') as f:
                             json.dump(result, f, indent=2)
                         
-                        # Check for findings/issues
-                        if 'findings' in result or 'issues' in result or 'violations' in result:
+                        # Check for findings/issues - Trend Micro returns findings in 'data' array
+                        if 'data' in result and isinstance(result['data'], list):
+                            findings_count = len(result['data'])
+                            failed_findings = [f for f in result['data'] if f.get('status') == 'FAILURE']
+                            failed_count = len(failed_findings)
+                            
+                            if failed_count > 0:
+                                print(f"\n⚠️  Found {failed_count} security failures in template (out of {findings_count} total findings)")
+                                
+                                # Show details of failures
+                                print("\n🔍 Security Failures:")
+                                for finding in failed_findings:
+                                    risk_level = finding.get('riskLevel', 'UNKNOWN')
+                                    rule_title = finding.get('ruleTitle', 'Unknown Rule')
+                                    description = finding.get('description', 'No description')
+                                    print(f"  - {risk_level}: {rule_title} - {description}")
+                                
+                                if os.environ.get('SECURITY_MODE', 'protect') == 'protect':
+                                    print("❌ Template has security issues in PROTECT mode! Failing...")
+                                    sys.exit(1)
+                                else:
+                                    print("📝 Running in LOG mode - documenting findings only")
+                            else:
+                                print(f"\n✅ No security failures detected ({findings_count} findings reviewed)")
+                        elif 'findings' in result or 'issues' in result or 'violations' in result:
+                            # Fallback for other possible response formats
                             findings_count = len(result.get('findings', result.get('issues', result.get('violations', []))))
                             if findings_count > 0:
                                 print(f"\n⚠️  Found {findings_count} security findings in template")
@@ -476,8 +500,18 @@ jobs:
               
               # Try to parse and display findings if jq is available
               if command -v jq &> /dev/null; then
-                FINDINGS=$(jq -r '.findings // [] | length' terraform-scan-results.json 2>/dev/null || echo "0")
-                echo "- **Findings**: $FINDINGS" >> $GITHUB_STEP_SUMMARY
+                TOTAL_FINDINGS=$(jq -r '.data // [] | length' terraform-scan-results.json 2>/dev/null || echo "0")
+                FAILED_FINDINGS=$(jq -r '[.data[]? | select(.status == "FAILURE")] | length' terraform-scan-results.json 2>/dev/null || echo "0")
+                echo "- **Total Findings**: $TOTAL_FINDINGS" >> $GITHUB_STEP_SUMMARY
+                echo "- **Failed Findings**: $FAILED_FINDINGS" >> $GITHUB_STEP_SUMMARY
+                
+                # Show failed findings details
+                if [ "$FAILED_FINDINGS" -gt 0 ]; then
+                  echo "### Failed Security Checks:" >> $GITHUB_STEP_SUMMARY
+                  echo "| Risk Level | Rule | Description |" >> $GITHUB_STEP_SUMMARY
+                  echo "|------------|------|-------------|" >> $GITHUB_STEP_SUMMARY
+                  jq -r '.data[]? | select(.status == "FAILURE") | "| \(.riskLevel) | \(.ruleTitle) | \(.description) |"' terraform-scan-results.json >> $GITHUB_STEP_SUMMARY
+                fi
               fi
             else
               echo "⚠️ No scan results file generated" >> $GITHUB_STEP_SUMMARY
