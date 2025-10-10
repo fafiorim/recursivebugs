@@ -531,12 +531,22 @@ jobs:
                 echo "- **Total Security Checks**: $TOTAL_FINDINGS" >> $GITHUB_STEP_SUMMARY
                 echo "- **Failed Checks**: $FAILED_FINDINGS" >> $GITHUB_STEP_SUMMARY
                 
-                # Show failed findings details
+                # Show failed findings details with compliance frameworks
                 if [ "$FAILED_FINDINGS" -gt 0 ]; then
                   echo "### Failed Security Checks:" >> $GITHUB_STEP_SUMMARY
-                  echo "| Risk Level | Rule | Description |" >> $GITHUB_STEP_SUMMARY
-                  echo "|------------|------|-------------|" >> $GITHUB_STEP_SUMMARY
-                  jq -r '.scanResults[]? // .data[]? | select(.status == "FAILURE") | "| \(.riskLevel) | \(.ruleTitle) | \(.description) |"' terraform-scan-results.json >> $GITHUB_STEP_SUMMARY
+                  echo "| Risk Level | Rule | Description | Compliance Frameworks |" >> $GITHUB_STEP_SUMMARY
+                  echo "|------------|------|-------------|----------------------|" >> $GITHUB_STEP_SUMMARY
+                  jq -r '.scanResults[]? // .data[]? | select(.status == "FAILURE") | "| \(.riskLevel) | \(.ruleTitle) | \(.description) | \(.complianceStandards | join(", ")) |"' terraform-scan-results.json >> $GITHUB_STEP_SUMMARY
+                  
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "### 📋 Compliance Impact Summary:" >> $GITHUB_STEP_SUMMARY
+                  echo "| Framework | Failed Rules |" >> $GITHUB_STEP_SUMMARY
+                  echo "|-----------|--------------|" >> $GITHUB_STEP_SUMMARY
+                  
+                  # Extract unique compliance frameworks and count failures
+                  jq -r '.scanResults[]? // .data[]? | select(.status == "FAILURE") | .complianceStandards[]' terraform-scan-results.json | sort | uniq -c | sort -nr | while read count framework; do
+                    echo "| $framework | $count |" >> $GITHUB_STEP_SUMMARY
+                  done
                 else
                   echo "### ✅ All Security Checks Passed" >> $GITHUB_STEP_SUMMARY
                 fi
