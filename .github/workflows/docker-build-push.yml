@@ -391,20 +391,20 @@ jobs:
                 'Content-Type': 'application/json;charset=utf-8'
             }
             
-          body = {
-              'type': 'cloudformation-template',
-              'content': terraform_content,
-              'arguments': [
-                  {
-                      'name': 'template_type',
-                      'value': 'terraform'
-                  }
-              ],
-              'pseudoArguments': {
-                  'awsRegion': os.environ.get('AWS_REGION', 'us-west-2'),
-                  'awsAccountId': '123456789012'  # Dummy account ID for scanning
-              }
-          }
+            body = {
+                'type': 'cloudformation-template',
+                'content': terraform_content,
+                'arguments': [
+                    {
+                        'name': 'template_type',
+                        'value': 'terraform'
+                    }
+                ],
+                'pseudoArguments': {
+                    'awsRegion': os.environ.get('AWS_REGION', 'us-west-2'),
+                    'awsAccountId': '123456789012'  # Dummy account ID for scanning
+                }
+            }
             
             print(f"🔍 Scanning Terraform plan: {terraform_file}")
             print(f"📡 API endpoint: {url_base}{url_path}")
