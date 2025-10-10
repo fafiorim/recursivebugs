@@ -517,16 +517,16 @@ jobs:
         - name: List available EKS clusters
           run: aws eks list-clusters
         
-        - name: Check required variables
+        - name: Check required secrets
           run: |
-            if [ -z "${{ vars.EKS_CLUSTER_NAME }}" ]; then
-              echo "Error: EKS_CLUSTER_NAME variable is not set"
+            if [ -z "${{ secrets.EKS_CLUSTER_NAME }}" ]; then
+              echo "Error: EKS_CLUSTER_NAME secret is not set"
               exit 1
             fi
             
         - name: Extract cluster name and update kube config
           run: |
-            FULL_CLUSTER_NAME="${{ vars.EKS_CLUSTER_NAME }}"
+            FULL_CLUSTER_NAME="${{ secrets.EKS_CLUSTER_NAME }}"
             CLUSTER_NAME=$(echo $FULL_CLUSTER_NAME | cut -d'@' -f2 | cut -d'.' -f1)
             echo "Using cluster name: $CLUSTER_NAME"
             aws eks update-kubeconfig --name $CLUSTER_NAME --region ${{ vars.AWS_REGION }}
