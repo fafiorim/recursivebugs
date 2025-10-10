@@ -523,12 +523,39 @@ jobs:
               echo "Error: EKS_CLUSTER_NAME secret is not set"
               exit 1
             fi
+            if [ -z "${{ vars.AWS_REGION }}" ]; then
+              echo "Error: AWS_REGION variable is not set"
+              exit 1
+            fi
+            
+        - name: Troubleshoot cluster configuration
+          run: |
+            echo "🔍 Troubleshooting cluster configuration:"
+            echo "FULL_CLUSTER_NAME from secret: ${{ secrets.EKS_CLUSTER_NAME }}"
+            echo "AWS_REGION from variable: ${{ vars.AWS_REGION }}"
+            echo "AWS_DEFAULT_REGION: $AWS_DEFAULT_REGION"
             
         - name: Extract cluster name and update kube config
           run: |
             FULL_CLUSTER_NAME="${{ secrets.EKS_CLUSTER_NAME }}"
-            CLUSTER_NAME=$(echo $FULL_CLUSTER_NAME | cut -d'@' -f2 | cut -d'.' -f1)
-            echo "Using cluster name: $CLUSTER_NAME"
+            echo "Full cluster name: $FULL_CLUSTER_NAME"
+            
+            # Extract cluster name - handle different formats
+            if [[ $FULL_CLUSTER_NAME == *"@"* ]]; then
+              # Format: user@cluster-name.region.eksctl.io
+              CLUSTER_NAME=$(echo $FULL_CLUSTER_NAME | cut -d'@' -f2 | cut -d'.' -f1)
+            else
+              # Format: cluster-name or cluster-name.region.eksctl.io
+              CLUSTER_NAME=$(echo $FULL_CLUSTER_NAME | cut -d'.' -f1)
+            fi
+            
+            echo "Extracted cluster name: $CLUSTER_NAME"
+            echo "Using AWS region: ${{ vars.AWS_REGION }}"
+            
+            # List clusters first for debugging
+            echo "Available clusters in region ${{ vars.AWS_REGION }}:"
+            aws eks list-clusters --region ${{ vars.AWS_REGION }}
+            
             aws eks update-kubeconfig --name $CLUSTER_NAME --region ${{ vars.AWS_REGION }}
         
         - name: Verify cluster access
