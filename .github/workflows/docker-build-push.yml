@@ -353,9 +353,13 @@ jobs:
             EOF
         
         - name: Generate Terraform plan
+          env:
+            AWS_ACCESS_KEY_ID: "dummy-access-key-for-scan"
+            AWS_SECRET_ACCESS_KEY: "dummy-secret-key-for-scan"
+            AWS_DEFAULT_REGION: "us-east-1"
           run: |
             cd terraform
-            terraform plan -out=tfplan
+            terraform plan -out=tfplan -refresh=false
             terraform show -json tfplan > tfplan.json
         
         - name: Scan Terraform template with Trend Micro Cloud Posture
