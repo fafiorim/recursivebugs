@@ -426,8 +426,33 @@ jobs:
                         with open('terraform-scan-results.json', 'w') as f:
                             json.dump(result, f, indent=2)
                         
-                        # Check for findings/issues - Trend Micro returns findings in 'data' array
-                        if 'data' in result and isinstance(result['data'], list):
+                        # Check for findings/issues - Trend Micro returns findings in 'scanResults' array
+                        if 'scanResults' in result and isinstance(result['scanResults'], list):
+                            findings_count = len(result['scanResults'])
+                            failed_findings = [f for f in result['scanResults'] if f.get('status') == 'FAILURE']
+                            failed_count = len(failed_findings)
+                            
+                            print(f"\n📊 Scan Summary: {findings_count} total checks, {failed_count} failures")
+                            
+                            if failed_count > 0:
+                                print(f"\n⚠️  Found {failed_count} security failures in template (out of {findings_count} total findings)")
+                                
+                                # Show details of failures
+                                print("\n🔍 Security Failures:")
+                                for finding in failed_findings:
+                                    risk_level = finding.get('riskLevel', 'UNKNOWN')
+                                    rule_title = finding.get('ruleTitle', 'Unknown Rule')
+                                    description = finding.get('description', 'No description')
+                                    print(f"  - {risk_level}: {rule_title} - {description}")
+                                
+                                if os.environ.get('SECURITY_MODE', 'protect') == 'protect':
+                                    print("❌ Template has security issues in PROTECT mode! Failing...")
+                                    sys.exit(1)
+                                else:
+                                    print("📝 Running in LOG mode - documenting findings only")
+                            else:
+                                print(f"\n✅ No security failures detected ({findings_count} security checks passed)")
+                        elif 'data' in result and isinstance(result['data'], list):
                             findings_count = len(result['data'])
                             failed_findings = [f for f in result['data'] if f.get('status') == 'FAILURE']
                             failed_count = len(failed_findings)
@@ -500,17 +525,20 @@ jobs:
               
               # Try to parse and display findings if jq is available
               if command -v jq &> /dev/null; then
-                TOTAL_FINDINGS=$(jq -r '.data // [] | length' terraform-scan-results.json 2>/dev/null || echo "0")
-                FAILED_FINDINGS=$(jq -r '[.data[]? | select(.status == "FAILURE")] | length' terraform-scan-results.json 2>/dev/null || echo "0")
-                echo "- **Total Findings**: $TOTAL_FINDINGS" >> $GITHUB_STEP_SUMMARY
-                echo "- **Failed Findings**: $FAILED_FINDINGS" >> $GITHUB_STEP_SUMMARY
+                # Check for scanResults first (new format), then data (old format)
+                TOTAL_FINDINGS=$(jq -r '.scanResults // .data // [] | length' terraform-scan-results.json 2>/dev/null || echo "0")
+                FAILED_FINDINGS=$(jq -r '[.scanResults[]? // .data[]? | select(.status == "FAILURE")] | length' terraform-scan-results.json 2>/dev/null || echo "0")
+                echo "- **Total Security Checks**: $TOTAL_FINDINGS" >> $GITHUB_STEP_SUMMARY
+                echo "- **Failed Checks**: $FAILED_FINDINGS" >> $GITHUB_STEP_SUMMARY
                 
                 # Show failed findings details
                 if [ "$FAILED_FINDINGS" -gt 0 ]; then
                   echo "### Failed Security Checks:" >> $GITHUB_STEP_SUMMARY
                   echo "| Risk Level | Rule | Description |" >> $GITHUB_STEP_SUMMARY
                   echo "|------------|------|-------------|" >> $GITHUB_STEP_SUMMARY
-                  jq -r '.data[]? | select(.status == "FAILURE") | "| \(.riskLevel) | \(.ruleTitle) | \(.description) |"' terraform-scan-results.json >> $GITHUB_STEP_SUMMARY
+                  jq -r '.scanResults[]? // .data[]? | select(.status == "FAILURE") | "| \(.riskLevel) | \(.ruleTitle) | \(.description) |"' terraform-scan-results.json >> $GITHUB_STEP_SUMMARY
+                else
+                  echo "### ✅ All Security Checks Passed" >> $GITHUB_STEP_SUMMARY
                 fi
               fi
             else
