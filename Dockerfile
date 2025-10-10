@@ -1,5 +1,5 @@
 FROM alpine:latest
-# Create a random file so each build has a new digest..
+# Create a random file so each build has a new digest
 RUN echo $RANDOM > /tmp/random-build-file
 # If want to test the check for malware..
 RUN echo "X5O!P%@AP[4\\PZX54(P^)7CC)7}\$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!\$H+H*" > /tmp/eicar.com
