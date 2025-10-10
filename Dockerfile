@@ -1,4 +1,6 @@
-FROM alpine:latest
+#FROM alpine:latest
+FROM alpine:3.15
+
 # Create a random file so each build has a new digest
 RUN echo $RANDOM > /tmp/random-build-file
 # If want to test the check for malware..
