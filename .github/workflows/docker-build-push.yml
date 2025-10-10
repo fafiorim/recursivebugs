@@ -512,7 +512,7 @@ jobs:
           with:
             aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
             aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-            aws-region: ${{ vars.AWS_REGION }}
+            aws-region: ${{ secrets.AWS_REGION }}
 
         - name: List available EKS clusters
           run: aws eks list-clusters
@@ -523,8 +523,8 @@ jobs:
               echo "Error: EKS_CLUSTER_NAME secret is not set"
               exit 1
             fi
-            if [ -z "${{ vars.AWS_REGION }}" ]; then
-              echo "Error: AWS_REGION variable is not set"
+            if [ -z "${{ secrets.AWS_REGION }}" ]; then
+              echo "Error: AWS_REGION secret is not set"
               exit 1
             fi
             
@@ -532,7 +532,7 @@ jobs:
           run: |
             echo "🔍 Troubleshooting cluster configuration:"
             echo "FULL_CLUSTER_NAME from secret: ${{ secrets.EKS_CLUSTER_NAME }}"
-            echo "AWS_REGION from variable: ${{ vars.AWS_REGION }}"
+            echo "AWS_REGION from secret: ${{ secrets.AWS_REGION }}"
             echo "AWS_DEFAULT_REGION: $AWS_DEFAULT_REGION"
             
         - name: Extract cluster name and update kube config
@@ -550,13 +550,13 @@ jobs:
             fi
             
             echo "Extracted cluster name: $CLUSTER_NAME"
-            echo "Using AWS region: ${{ vars.AWS_REGION }}"
+            echo "Using AWS region: ${{ secrets.AWS_REGION }}"
             
             # List clusters first for debugging
-            echo "Available clusters in region ${{ vars.AWS_REGION }}:"
-            aws eks list-clusters --region ${{ vars.AWS_REGION }}
+            echo "Available clusters in region ${{ secrets.AWS_REGION }}:"
+            aws eks list-clusters --region ${{ secrets.AWS_REGION }}
             
-            aws eks update-kubeconfig --name $CLUSTER_NAME --region ${{ vars.AWS_REGION }}
+            aws eks update-kubeconfig --name $CLUSTER_NAME --region ${{ secrets.AWS_REGION }}
         
         - name: Verify cluster access
           run: |
