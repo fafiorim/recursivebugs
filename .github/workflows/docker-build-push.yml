@@ -515,7 +515,7 @@ jobs:
         - name: Create scan summary
           if: always()
           run: |
-            echo "## 🏗️ IaaS Template Scan Results" >> $GITHUB_STEP_SUMMARY
+            echo "## 🏗️ IaC Template Scan Results" >> $GITHUB_STEP_SUMMARY
             
             if [ -f terraform-scan-results.json ]; then
               echo "### Overview" >> $GITHUB_STEP_SUMMARY
