@@ -543,8 +543,8 @@ jobs:
                   echo "| Framework | Failed Rules |" >> $GITHUB_STEP_SUMMARY
                   echo "|-----------|--------------|" >> $GITHUB_STEP_SUMMARY
                   
-                  # Extract unique compliance frameworks and count failures
-                  jq -r '.scanResults[]? // .data[]? | select(.status == "FAILURE") | .complianceStandards[]' terraform-scan-results.json | sort | uniq -c | sort -nr | while read count framework; do
+                  # Extract unique compliance frameworks and count failures - handle both strings and objects
+                  jq -r '.scanResults[]? // .data[]? | select(.status == "FAILURE") | .complianceStandards[]? | if type == "string" then . elif type == "object" then .id // .name // "Unknown" else empty end' terraform-scan-results.json 2>/dev/null | sort | uniq -c | sort -nr | while read count framework; do
                     echo "| $framework | $count |" >> $GITHUB_STEP_SUMMARY
                   done
                 else
