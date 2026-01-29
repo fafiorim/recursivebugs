@@ -536,7 +536,7 @@ jobs:
                   echo "### Failed Security Checks:" >> $GITHUB_STEP_SUMMARY
                   echo "| Risk Level | Rule | Description | Compliance Frameworks |" >> $GITHUB_STEP_SUMMARY
                   echo "|------------|------|-------------|----------------------|" >> $GITHUB_STEP_SUMMARY
-                  jq -r '.scanResults[]? // .data[]? | select(.status == "FAILURE") | "| \(.riskLevel) | \(.ruleTitle) | \(.description) | \(if .complianceStandards then (if (.complianceStandards | type) == "array" then (.complianceStandards | join(", ")) else .complianceStandards end) else "N/A" end) |"' terraform-scan-results.json >> $GITHUB_STEP_SUMMARY
+                  jq -r '.scanResults[]? // .data[]? | select(.status == "FAILURE") | "| \(.riskLevel) | \(.ruleTitle) | \(.description) | \(if .complianceStandards then (if (.complianceStandards | type) == "array" then ([.complianceStandards[] | if type == "string" then . elif type == "object" then .id // .name // "Unknown" else empty end] | join(", ")) else .complianceStandards end) else "N/A" end) |"' terraform-scan-results.json >> $GITHUB_STEP_SUMMARY
                   
                   echo "" >> $GITHUB_STEP_SUMMARY
                   echo "### 📋 Compliance Impact Summary:" >> $GITHUB_STEP_SUMMARY
