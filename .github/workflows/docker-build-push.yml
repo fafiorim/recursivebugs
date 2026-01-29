@@ -156,6 +156,38 @@ jobs:
           else
             echo "### ✅ No Critical Vulnerabilities Found" >> $GITHUB_STEP_SUMMARY
           fi
+          
+          if [ "$HIGH" -gt 0 ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### ⚠️ High Severity Vulnerabilities" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            
+            # Extract high severity vulnerabilities
+            HIGH_VULNS=$(jq -r '
+              if .vulnerabilities.findings.High then
+                [.vulnerabilities.findings.High[] | 
+                  "- " + (.id // "Unknown") + " (" + (.name // "unknown package") + ")" +
+                  " - " + (if .fix and .fix != "unknown" and .fix != "not-fixed" then "Fix: " + .fix else "No fix available" end)
+                ] | join("\n")
+              elif .vulnerabilities.findings then
+                # Fallback: try flat array structure
+                [.vulnerabilities.findings[] | 
+                  select(type == "object" and (.severity == "HIGH" or .severity == "High" or .severity == "high")) |
+                  "- " + (.id // "Unknown") + " (" + (.name // "unknown package") + ")"
+                ] | join("\n")
+              else
+                ""
+              end
+            ' vulnerability-scan-results.json 2>/dev/null)
+            
+            if [ -n "$HIGH_VULNS" ]; then
+              echo "$HIGH_VULNS" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "Unable to extract high severity vulnerability details" >> $GITHUB_STEP_SUMMARY
+            fi
+            
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          fi
 
       - name: Upload vulnerability logs
         if: always()
