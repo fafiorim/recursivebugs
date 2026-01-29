@@ -120,7 +120,7 @@ jobs:
           if [ "$CRITICAL" -gt 0 ]; then
             echo "### ❌ Critical Vulnerabilities" >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-            jq -r '.vulnerabilities.findings[] | if type == "object" and .severity == "CRITICAL" then "- " + (.id // "N/A") + ": " + (.description // "No description") else empty end' vulnerability-scan-results.json >> $GITHUB_STEP_SUMMARY || echo "Error parsing critical vulnerabilities" >> $GITHUB_STEP_SUMMARY
+            jq -r 'try (.vulnerabilities.findings[] | select(type == "object" and .severity == "CRITICAL") | "- " + (.id // "N/A") + ": " + (.description // "No description")) catch "Could not parse findings"' vulnerability-scan-results.json >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
             
             if [ "${{ env.SECURITY_MODE }}" = "protect" ]; then
@@ -536,7 +536,7 @@ jobs:
                   echo "### Failed Security Checks:" >> $GITHUB_STEP_SUMMARY
                   echo "| Risk Level | Rule | Description | Compliance Frameworks |" >> $GITHUB_STEP_SUMMARY
                   echo "|------------|------|-------------|----------------------|" >> $GITHUB_STEP_SUMMARY
-                  jq -r '.scanResults[]? // .data[]? | select(.status == "FAILURE") | "| \(.riskLevel) | \(.ruleTitle) | \(.description) | \(.complianceStandards | join(", ")) |"' terraform-scan-results.json >> $GITHUB_STEP_SUMMARY
+                  jq -r '.scanResults[]? // .data[]? | select(.status == "FAILURE") | "| \(.riskLevel) | \(.ruleTitle) | \(.description) | \(if .complianceStandards then (if (.complianceStandards | type) == "array" then (.complianceStandards | join(", ")) else .complianceStandards end) else "N/A" end) |"' terraform-scan-results.json >> $GITHUB_STEP_SUMMARY
                   
                   echo "" >> $GITHUB_STEP_SUMMARY
                   echo "### 📋 Compliance Impact Summary:" >> $GITHUB_STEP_SUMMARY
