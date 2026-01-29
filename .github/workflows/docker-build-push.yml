@@ -309,9 +309,9 @@ jobs:
 
   iaas-scan:
       needs: [vulnerabilities-scan, malware-scan, secrets-scan, sbom-scan]
-      if: >
+      if: |
         always() && (
-          ${{ vars.SECURITY_MODE != 'protect' }} || (
+          vars.SECURITY_MODE != 'protect' || (
             needs.vulnerabilities-scan.result != 'failure' && 
             needs.malware-scan.result != 'failure' && 
             needs.secrets-scan.result != 'failure' && 
@@ -565,9 +565,9 @@ jobs:
 
   deploy-to-k8s:
       needs: [vulnerabilities-scan, malware-scan, secrets-scan, sbom-scan, iaas-scan]
-      if: >
+      if: |
         always() && (
-          ${{ vars.SECURITY_MODE != 'protect' }} || (
+          vars.SECURITY_MODE != 'protect' || (
             needs.vulnerabilities-scan.result != 'failure' && 
             needs.malware-scan.result != 'failure' && 
             needs.secrets-scan.result != 'failure' && 
