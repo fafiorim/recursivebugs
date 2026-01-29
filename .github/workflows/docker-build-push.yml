@@ -121,18 +121,21 @@ jobs:
             echo "### ❌ Critical Vulnerabilities" >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
             
-            # Try multiple possible JSON structures
+            # Extract critical vulnerabilities - findings is an object with severity keys
             CRITICAL_VULNS=$(jq -r '
-              if .vulnerabilities.findings then
+              if .vulnerabilities.findings.Critical then
+                [.vulnerabilities.findings.Critical[] | 
+                  "- " + (.id // "Unknown") + " (" + (.name // "unknown package") + ")" +
+                  " - " + (if .fix and .fix != "unknown" and .fix != "not-fixed" then "Fix: " + .fix else "No fix available" end)
+                ] | join("\n")
+              elif .vulnerabilities.findings then
+                # Fallback: try flat array structure
                 [.vulnerabilities.findings[] | 
-                  if type == "object" then
-                    if (.severity == "CRITICAL" or .severity == "Critical" or .severity == "critical") then
-                      "- " + (.id // .cve // .name // "Unknown") + ": " + (.description // .title // "No description available")
-                    else empty end
-                  else empty end
+                  select(type == "object" and (.severity == "CRITICAL" or .severity == "Critical" or .severity == "critical")) |
+                  "- " + (.id // "Unknown") + " (" + (.name // "unknown package") + ")"
                 ] | join("\n")
               else
-                "Could not find findings in expected format"
+                ""
               end
             ' vulnerability-scan-results.json 2>/dev/null)
             
