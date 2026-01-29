@@ -120,7 +120,28 @@ jobs:
           if [ "$CRITICAL" -gt 0 ]; then
             echo "### ❌ Critical Vulnerabilities" >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-            jq -r 'try (.vulnerabilities.findings[] | select(type == "object" and .severity == "CRITICAL") | "- " + (.id // "N/A") + ": " + (.description // "No description")) catch "Could not parse findings"' vulnerability-scan-results.json >> $GITHUB_STEP_SUMMARY
+            
+            # Try multiple possible JSON structures
+            CRITICAL_VULNS=$(jq -r '
+              if .vulnerabilities.findings then
+                [.vulnerabilities.findings[] | 
+                  if type == "object" then
+                    if (.severity == "CRITICAL" or .severity == "Critical" or .severity == "critical") then
+                      "- " + (.id // .cve // .name // "Unknown") + ": " + (.description // .title // "No description available")
+                    else empty end
+                  else empty end
+                ] | join("\n")
+              else
+                "Could not find findings in expected format"
+              end
+            ' vulnerability-scan-results.json 2>/dev/null)
+            
+            if [ -n "$CRITICAL_VULNS" ]; then
+              echo "$CRITICAL_VULNS" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "Unable to extract critical vulnerability details from scan results" >> $GITHUB_STEP_SUMMARY
+            fi
+            
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
             
             if [ "${{ env.SECURITY_MODE }}" = "protect" ]; then
