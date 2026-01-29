@@ -120,7 +120,7 @@ jobs:
           if [ "$CRITICAL" -gt 0 ]; then
             echo "### ❌ Critical Vulnerabilities" >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-            jq -r '.vulnerabilities.findings[] | select(.severity=="CRITICAL") | "- "+.id+": "+.description' vulnerability-scan-results.json >> $GITHUB_STEP_SUMMARY
+            jq -r '.vulnerabilities.findings[] | if type == "object" and .severity == "CRITICAL" then "- " + (.id // "N/A") + ": " + (.description // "No description") else empty end' vulnerability-scan-results.json >> $GITHUB_STEP_SUMMARY || echo "Error parsing critical vulnerabilities" >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
             
             if [ "${{ env.SECURITY_MODE }}" = "protect" ]; then
